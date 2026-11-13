@@ -1,0 +1,31 @@
+name: CI
+
+on:
+  push:
+    branches: [main, 'build/**']
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Type checks, tests and builds
+        run: npm run check
+      - name: Known vulnerabilities in what ships
+        run: npm audit --omit=dev --audit-level=high
