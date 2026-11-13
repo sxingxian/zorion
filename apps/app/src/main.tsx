@@ -9,8 +9,9 @@ import { GuestFlow, GuestPane, useGuestMeetup } from './guestflow';
 import { Create, Home, HostMeetup, HostPane, useMeetup } from './host';
 import { type Me, Session, api, match, navigate, useMode, usePath } from './lib';
 import { CrewMap } from './map';
+import { useEmailLink } from './updates';
 import { Shell } from './shell';
-import { Btn, Header, Loading, Note } from './ui';
+import { Btn, Header, Loading, Note, Toast } from './ui';
 
 function HostRoute({ me, id, sub, pid, mode }: { me: Me; id: string; sub?: string; pid?: string; mode: 'light' | 'dark' }) {
   const { m, setM, missing } = useMeetup(id);
@@ -23,10 +24,12 @@ function HostRoute({ me, id, sub, pid, mode }: { me: Me; id: string; sub?: strin
 }
 
 function GuestRoute({ token, me, mode }: { token: string; me: Me | null; mode: 'light' | 'dark' }) {
-  const { m, setM, gone } = useGuestMeetup(token);
+  const { m, setM, gone, refresh } = useGuestMeetup(token);
+  const [notice, clearNotice] = useEmailLink(token, refresh);
   return (
     <Shell me={me} guest theme={m?.theme ?? 'pink'} mode={mode} ads={!!m?.ads} pane={m ? <GuestPane m={m} /> : undefined}>
       {gone ? <main className="screen" style={{ justifyContent: 'center', gap: 16 }}><h1 className="display h1">This link is not active</h1><Note>{gone}</Note></main> : m ? <GuestFlow token={token} m={m} setM={setM} /> : <Loading />}
+      <Toast text={notice} onDone={clearNotice} />
     </Shell>
   );
 }

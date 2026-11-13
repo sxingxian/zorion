@@ -76,3 +76,9 @@ export function totp(base32: string, at = Date.now()): string {
   const o = mac[mac.length - 1]! & 15;
   return String((mac.readUInt32BE(o) & 0x7fffffff) % 1_000_000).padStart(6, '0');
 }
+
+/** Emails the demo "sent" to an address, oldest first. */
+export async function mailsTo(page: Page, email: string): Promise<Array<{ subject: string; text: string }>> {
+  const { outbox } = await (await page.request.get(`${APP}/api/dev/outbox`)).json();
+  return outbox.filter((m: { to: string }) => m.to === email);
+}

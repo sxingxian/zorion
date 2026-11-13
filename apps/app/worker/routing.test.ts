@@ -3,7 +3,7 @@ import { testDb } from '@zorion/db/testing';
 import type { Deps, Env } from './core';
 import { createApp } from './index';
 
-const env: Env = { DATABASE_URL: '', APP_ORIGIN: 'http://localhost:5173', SITE_ORIGIN: 'http://localhost:5174', PEPPER: 'test-pepper', TOTP_KEY: btoa('0123456789abcdef0123456789abcdef'), ENVIRONMENT: 'development', GOOGLE_PLACES_KEY: 'test-key' };
+const env: Env = { DATABASE_URL: '', APP_ORIGIN: 'http://localhost:5173', SITE_ORIGIN: 'http://localhost:5174', PEPPER: 'test-pepper', TOTP_KEY: btoa('0123456789abcdef0123456789abcdef'), ENVIRONMENT: 'development', GOOGLE_PLACES_KEY: 'test-key', OSRM_FOOT_URL: 'https://routing.openstreetmap.de/routed-foot/', ORS_API_KEY: 'ors-key' };
 
 function browser(app: ReturnType<typeof createApp>, ip = '198.51.100.1') {
   const jar = new Map<string, string>();
@@ -47,6 +47,16 @@ const fakeFetch = (async (input: string, init?: RequestInit) => {
       else out.push({ originIndex: o, destinationIndex: d, status: {}, condition: 'ROUTE_EXISTS', duration: `${(30 - d * 2 + o) * 60}s` });
     }
     return Response.json(out);
+  }
+  if (url.includes('/table/v1/')) {
+    // OSRM: rows of sources, columns of destinations, seconds. Same flipped order as the Google fake; one pair has no route.
+    const u = new URL(url);
+    const src = u.searchParams.get('sources')!.split(';');
+    const dst = u.searchParams.get('destinations')!.split(';');
+    return Response.json({ code: 'Ok', durations: src.map((_, o) => dst.map((_, d) => (o === 0 && d === 0 ? null : (30 - d * 2 + o) * 60))) });
+  }
+  if (url.includes('openrouteservice')) {
+    return Response.json({ durations: body.sources.map((_: number, o: number) => body.destinations.map((_: number, d: number) => (30 - d * 2 + o) * 60)) });
   }
   throw new Error(`unexpected fetch ${url}`);
 }) as unknown as typeof fetch;
@@ -173,7 +183,7 @@ describe('routed travel times', () => {
     const full = { db: deps.db!, env, fetch: fakeFetch, now: deps.now!, outbox: [] } as Deps;
     const origins = Array.from({ length: 25 }, (_, i) => ({ lat: 1.3 + i * 0.001, lng: 103.8 }));
     const destinations = Array.from({ length: 10 }, (_, i) => ({ lat: 1.31, lng: 103.8 + i * 0.001 }));
-    const matrix = await routeMatrix(full, origins, destinations, 'transit', new Date('2026-12-01T12:00:00Z'));
+    const matrix = await routeMatrix(full, 'google', origins, destinations, 'transit', new Date('2026-12-01T12:00:00Z'));
     expect(calls).toHaveLength(3); // 10 + 10 + 5 origins
     expect(calls.every((c) => c.body.origins.length * c.body.destinations.length <= 100)).toBe(true);
     expect(calls[0]!.body.travelMode).toBe('TRANSIT');
@@ -181,5 +191,66 @@ describe('routed travel times', () => {
     expect(matrix).toHaveLength(25);
     expect(matrix[0]![0]).toBeNull(); // the pair with no route
     expect(matrix[24]![9]).toBe(30 - 18 + 4); // origin index restarts in each request: 24 is the 5th of the last one
+  });
+
+  it('routes for free through an OSRM server, and keeps to one call a second on the public one', async () => {
+    await (deps.db as any).query(`update settings set value = '"osrm"' where key = 'routing_provider'`);
+    await (deps.db as any).query("delete from throttles where key = 'osrm-gate'");
+    await newMeetup('OSRM');
+    await guest('POST', `/api/g/${token}/location`, { lat: 1.3, lng: 103.86 });
+    await h('POST', `/api/meetups/${id}/location`, { lat: 1.3, lng: 103.84 });
+    calls.length = 0;
+    const r = await h('POST', `/api/meetups/${id}/middle`, {});
+    const sent = calls.find((c) => c.url.includes('/table/v1/'))!;
+    expect(sent.url.startsWith('https://routing.openstreetmap.de/routed-foot/table/v1/driving/103.840000,1.300000;103.860000,1.300000;103.850000,1.300000;')).toBe(true); // longitude first
+    expect(new URL(sent.url).searchParams.get('sources')).toBe('0;1');
+    expect(new URL(sent.url).searchParams.get('destinations')).toBe('2;3;4;5;6;7;8;9');
+    expect(calls.some((c) => c.url.includes('googleapis'))).toBe(false);
+    expect(r.body.meetup.places[0].name).toBe('Place 8');
+    expect(r.body.meetup.places.every((p: any) => p.routed)).toBe(true);
+
+    // Straight away again, for another meetup: the gate holds the second call back and the estimate is used.
+    await newMeetup('OSRM again');
+    await guest('POST', `/api/g/${token}/location`, { lat: 1.3, lng: 103.86 });
+    await h('POST', `/api/meetups/${id}/location`, { lat: 1.3, lng: 103.84 });
+    await (deps.db as any).query("update throttles set window_start = now() where key = 'osrm-gate'");
+    calls.length = 0;
+    const again = await h('POST', `/api/meetups/${id}/middle`, {});
+    expect(calls.some((c) => c.url.includes('/table/v1/'))).toBe(false);
+    expect(again.body.meetup.places.every((p: any) => p.routed === false)).toBe(true);
+    expect(again.body.meetup.places[0].name).toBe('Place 1');
+  });
+
+  it('routes for free through openrouteservice with its key', async () => {
+    await (deps.db as any).query(`update settings set value = '"ors"' where key = 'routing_provider'`);
+    await newMeetup('ORS');
+    await guest('POST', `/api/g/${token}/location`, { lat: 1.3, lng: 103.86 });
+    await h('POST', `/api/meetups/${id}/location`, { lat: 1.3, lng: 103.84 });
+    calls.length = 0;
+    const r = await h('POST', `/api/meetups/${id}/middle`, {});
+    const sent = calls.find((c) => c.url.includes('openrouteservice'))!;
+    expect(sent.url).toBe('https://api.openrouteservice.org/v2/matrix/foot-walking');
+    expect(sent.headers.authorization).toBe('ors-key');
+    expect(sent.body.locations[0]).toEqual([103.84, 1.3]); // longitude first
+    expect(sent.body.sources).toEqual([0, 1]);
+    expect(sent.body.destinations).toEqual([2, 3, 4, 5, 6, 7, 8, 9]);
+    expect(sent.body.metrics).toEqual(['duration']);
+    expect(r.body.meetup.places[0].name).toBe('Place 8');
+    expect(r.body.meetup.places[0].longest).toBe(17);
+  });
+
+  it('knows which services can route which way of travelling', async () => {
+    const { activeRouting, canRoute } = await import('./routing');
+    const full = { db: deps.db!, env, fetch: fakeFetch, now: deps.now!, outbox: [] } as Deps;
+    expect(canRoute(full, 'osrm', 'walk')).toBe(true);
+    expect(canRoute(full, 'osrm', 'cycle')).toBe(false); // no cycling server configured in this test
+    expect(canRoute(full, 'osrm', 'transit')).toBe(false);
+    expect(canRoute(full, 'ors', 'cycle')).toBe(true);
+    expect(canRoute(full, 'ors', 'transit')).toBe(false);
+    expect(canRoute(full, 'google', 'transit')).toBe(true);
+    expect(canRoute(full, 'estimate', 'walk')).toBe(false);
+    // A choice whose key is missing quietly becomes the estimate.
+    expect(await activeRouting({ ...full, env: { ...env, ORS_API_KEY: undefined } })).toBe('estimate');
+    expect(await activeRouting(full)).toBe('ors');
   });
 });

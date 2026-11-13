@@ -99,6 +99,7 @@ export interface Me {
   theme: 'gold' | 'pink';
   totp_enabled: boolean;
   has_password: boolean;
+  notify: boolean;
 }
 export const Session = createContext<{ me: Me | null; refresh: () => Promise<void> }>({ me: null, refresh: async () => {} });
 export const useSession = () => useContext(Session);

@@ -2,6 +2,7 @@ import { type ReactNode, useCallback, useEffect, useState } from 'react';
 import { LIMITS } from '@zorion/core';
 import { CrewMap } from './map';
 import { StartPicker } from './start';
+import { EmailUpdates } from './updates';
 import { ApiError, Link, api, useAction, when } from './lib';
 import { Btn, Chevron, Chip, Codes, Facts, Field, Header, Icon, Loading, Mascot, Note, Oops, Pick, Sponsored, Toast, copyText, locate } from './ui';
 
@@ -17,7 +18,7 @@ export function useGuestMeetup(token: string) {
     const t = setInterval(() => { if (document.visibilityState === 'visible') refresh(); }, 10000);
     return () => clearInterval(t);
   }, [refresh]);
-  return { m, setM, gone };
+  return { m, setM, gone, refresh };
 }
 
 export function GuestPane({ m }: { m: M }) {
@@ -285,6 +286,7 @@ export function GuestFlow({ token, m, setM }: { token: string; m: M; setM: (m: M
             <div className="row" style={{ gap: 12 }}><Mascot size={64} bob /><div className="stack" style={{ gap: 2 }}><h1 className="display h1">{place?.name} it is.</h1><span style={{ fontSize: 15, fontWeight: 600 }}>{[m.winner?.name, place?.address].filter(Boolean).join(' · ')}</span></div></div>
             <div className="grid3">{[[sched.split(', ')[1], 'meet-up'], [place?.myMinutes ? `${place.myMinutes} min` : '—', 'your trip'], [m.progress.going, 'going']].map(([v, l], i) => <div key={l} className="card rise" style={{ padding: 10, borderRadius: 14, background: i === 1 ? 'var(--accent)' : undefined, color: i === 1 ? 'var(--ink)' : undefined }}><div className="display h2">{v}</div><div style={{ fontSize: 12 }}>{l}</div></div>)}</div>
             {place?.directions && <a className="btn" href={place.directions} target="_blank" rel="noopener noreferrer">Open directions</a>}
+            <EmailUpdates token={token} m={m} setM={setM} />
             <div className="row between"><button className="btn text" style={{ width: 'auto' }} onClick={() => setView(me.canAmend ? 'edit' : 'code')}>Change my choices</button><Link to="/sign-in" className="btn text" style={{ width: 'auto' }}>Host your own, free</Link></div>
           </div>
         </main>
@@ -306,7 +308,7 @@ export function GuestFlow({ token, m, setM }: { token: string; m: M; setM: (m: M
           ['Place', m.status === 'place_vote' ? `${m.progress.placeVoted} of ${m.progress.total} have voted` : 'After the food vote', m.status === 'place_vote' ? chip(false) : undefined],
         ]} />
         <Facts title="Your choices" rows={[...(m.dateIsSet ? [['Reply', reply] as [string, ReactNode]] : []), ...(m.dateMode === 'vote' && myDates ? [['Dates', myDates] as [string, ReactNode]] : []), ['Food', myCats || '—'], ...(myPlace ? [['Place', myPlace] as [string, ReactNode]] : [['Start', me.hasLocation ? 'Shared once' : 'Not shared'] as [string, ReactNode]])]} />
-        <div className="push stack"><p className="small center">Open this link any time. Changing a choice asks for your code.</p><Btn kind="second" onClick={() => setView(me.canAmend ? 'edit' : 'code')}>Change my choices</Btn></div>
+        <div className="push stack"><EmailUpdates token={token} m={m} setM={setM} /><p className="small center">Open this link any time. Changing a choice asks for your code.</p><Btn kind="second" onClick={() => setView(me.canAmend ? 'edit' : 'code')}>Change my choices</Btn></div>
       </main>
     </>
   );

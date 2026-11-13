@@ -16,6 +16,9 @@ export interface Env {
   PLACES_PROVIDER?: string; // "osm" or "google"; the admin setting wins
   GOOGLE_PLACES_KEY?: string;
   GOOGLE_ROUTES_KEY?: string; // optional; falls back to GOOGLE_PLACES_KEY
+  OSRM_FOOT_URL?: string; // an OSRM server with a walking profile, for free routed times
+  OSRM_BIKE_URL?: string; // an OSRM server with a cycling profile
+  ORS_API_KEY?: string; // openrouteservice key (free plan available)
   OVERPASS_URL?: string; // your own Overpass server, if you run one
   NOMINATIM_URL?: string; // your own Nominatim server, if you run one
   STRIPE_SECRET_KEY?: string;
@@ -44,6 +47,7 @@ export interface User {
   status: 'active' | 'suspended';
   totp_enabled: boolean;
   has_password: boolean;
+  notify: boolean; // emails about their meetups
 }
 
 export type Vars = { deps: Deps; user: User | null; sessionId: string | null; pending: { userId: string; first: string } | null };
@@ -138,7 +142,7 @@ export async function startSession(c: C, userId: string, kind: 'full' | 'pending
   putCookie(c, 'zorion', token, seconds);
 }
 
-const USER_COLUMNS = `u.id, u.email, u.display_name, u.plan, u.theme, u.status, u.totp_enabled, (u.password_hash is not null) as has_password`;
+const USER_COLUMNS = `u.id, u.email, u.display_name, u.plan, u.theme, u.status, u.totp_enabled, (u.password_hash is not null) as has_password, u.notify`;
 
 export async function loadSession(c: C): Promise<void> {
   c.set('user', null);
@@ -161,7 +165,7 @@ export async function loadSession(c: C): Promise<void> {
   c.set('user', toUser(row));
 }
 export function toUser(row: Row): User {
-  return { id: row.id, email: row.email, display_name: row.display_name, plan: row.plan, theme: row.theme, status: row.status, totp_enabled: row.totp_enabled, has_password: row.has_password };
+  return { id: row.id, email: row.email, display_name: row.display_name, plan: row.plan, theme: row.theme, status: row.status, totp_enabled: row.totp_enabled, has_password: row.has_password, notify: row.notify !== false };
 }
 export function requireUser(c: C): User {
   const user = c.get('user');

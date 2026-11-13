@@ -15,7 +15,7 @@ Card details never reach Zorion. Checkout and the customer portal are Stripe's o
 - A person's coordinates are never sent to anyone else, including the host. Other screens get travel minutes only, and the drawn map places people on a ring by travel time.
 - Maps are drawn in the app. No ad network ever receives a position. The places search receives only the middle point.
 - Typing a place instead of sharing GPS: the typed words are looked up from Zorion's server, on a button press, so the map service sees neither the person's network address nor their name. Lookups are limited to 15 per network per ten minutes.
-- Routed trip times are off by default. When an admin switches them on, starting points and candidate places are sent to Google's Routes API with no names attached. This is the one case where a position leaves Zorion, and the privacy page says so.
+- Routed trip times are off by default. When an admin switches them on, starting points and candidate places are sent to the chosen routing service (an OSRM server, openrouteservice or Google) with no names attached. This is the one case where a position leaves Zorion, and the privacy page says so.
 - Coordinates are erased when the meetup ends: 24 hours after its start, or 30 days after its last change if it never got a date. The meetup itself is deleted 90 days after that.
 
 ## Host sign-in
@@ -35,6 +35,14 @@ Card details never reach Zorion. Checkout and the customer portal are Stripe's o
 - No account. The link carries a random 128-bit token.
 - A 4-character code identifies a guest on a new browser and is required to change any choice. Three wrong tries pause code entry for that network for 10 minutes, and 20 wrong tries pause it for the whole meetup, so changing network does not help a guesser.
 - The host can reset a guest's code. The host never sees it.
+
+## Emails to guests
+
+- Off unless a guest asks. The address is used only after the guest confirms it from their own inbox, so nobody can sign another person up for more than one confirmation email.
+- Confirmation emails are limited to 3 a day per guest and 10 an hour per network.
+- The address is never sent to the host or to other guests. It is erased when the guest stops the emails or when the meetup ends.
+- Confirm and stop links carry a keyed code derived from the guest and the address. Nothing extra is stored, and the link dies when the address changes.
+- Emails are sent after the response has gone out, so a slow or failing mail service never blocks a vote.
 
 ## Requests
 

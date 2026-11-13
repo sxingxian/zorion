@@ -117,7 +117,28 @@ Guests and hosts can type a station, street or postcode instead of sharing GPS. 
 
 ### Routed trip times
 
-By default Zorion estimates trip times from straight-line distance and nothing leaves Zorion. To get real walking, cycling and transit times, enable **Routes API** in Google Cloud for the same key (or store a separate one as `GOOGLE_ROUTES_KEY`), then choose Google routes under Admin → Categories & rules. Each starting point is then sent to Google with no name attached, and Google bills per origin-destination pair, so set a budget alert. If a call fails, Zorion falls back to its estimate.
+By default Zorion estimates trip times from straight-line distance and nothing leaves Zorion. Under Admin → Categories & rules you can switch to real routed times. Every routed choice sends each starting point to that service with no name attached, and each falls back to the estimate if its call fails.
+
+| Choice | Cost | Covers | Set-up |
+|---|---|---|---|
+| OpenStreetMap routing (OSRM) | Free, no key | Walking, cycling | Works as shipped: `OSRM_FOOT_URL` and `OSRM_BIKE_URL` in `apps/app/wrangler.jsonc` point at the public servers run by FOSSGIS |
+| openrouteservice | Free plan with a key | Walking, cycling | Sign up at openrouteservice.org, then `npx wrangler secret put ORS_API_KEY` |
+| Google routes | Paid per trip calculated | Walking, cycling, transit | Enable **Routes API** for your Google key, or store a separate `GOOGLE_ROUTES_KEY`. Set a budget alert |
+
+Limits to know:
+
+- The public OSRM servers are run by volunteers. They allow one request a second and promise no availability. Zorion keeps to that limit and uses the estimate for any call it has to skip. For steady traffic, run your own OSRM and point the two URLs at it.
+- openrouteservice's free plan allows 500 matrix requests a day and 40 a minute. Zorion uses one per "Find the middle".
+- Transit is only routed by Google. With a free choice, transit meetups use the estimate.
+
+### Emails
+
+Besides sign-in codes, Zorion sends:
+
+- **To hosts**: when the date answers, the food votes or the place votes are complete, and when a guest changes a choice after the plan is confirmed (at most one an hour per meetup). A host can switch these off under Account.
+- **To guests who ask**: when the date is set, when the place vote opens, when the place is confirmed, and when the date moves. A guest leaves an address on the meetup page and must confirm it from their inbox first. Every email has a stop link.
+
+All of it goes through Resend with the same `RESEND_API_KEY` and `EMAIL_FROM`. Nothing else to set up.
 
 ## 9. Ads
 

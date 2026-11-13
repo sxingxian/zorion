@@ -174,3 +174,57 @@ test('the app links to the privacy notice and terms on the landing site', async 
   expect(res.status()).toBe(302);
   expect(res.headers().location).toBe('http://localhost:5174/terms');
 });
+
+test('emails: a guest opts in and confirms, the host hears the votes are in, the guest hears it is on and can stop', async ({ page, browser }) => {
+  const { mailsTo } = await import('./helpers');
+  await signIn(page, 'host-mail@example.com');
+  const link = await hostMeetup(page, ['Mia']);
+
+  const mia = await joinAs(browser, link, 'Mia');
+  await tap(mia.page, 'Going');
+  await tap(mia.page, 'Continue');
+  await tap(mia.page, 'Share my GPS location');
+  await tap(mia.page, 'Pizza');
+  await tap(mia.page, 'Cast my');
+  await expect(mia.page.getByText('Votes in')).toBeVisible();
+
+  // Mia asks for updates. Nothing but a confirmation goes out until she confirms.
+  await tap(mia.page, 'Email me when the place is set');
+  await mia.page.getByLabel('Your email').fill('mia-mail@example.com');
+  await tap(mia.page, 'Email me updates');
+  await expect(mia.page.getByText('Check m•••@example.com and open the link to confirm.')).toBeVisible();
+  const confirm = (await mailsTo(page, 'mia-mail@example.com')).at(-1)!;
+  expect(confirm.subject).toBe('Confirm email updates for Midnight poetry party');
+
+  // She opens the link on another device. The secret leaves the address bar straight away.
+  const other = await (await browser.newContext({ viewport: { width: 390, height: 844 } })).newPage();
+  await other.goto(confirm.text.match(/http\S+\?confirm=\S+/)![0]);
+  await expect(other.getByRole('status')).toHaveText('Email updates are on for Mia.');
+  expect(other.url()).not.toContain('confirm=');
+  await mia.page.reload();
+  await expect(mia.page.getByText('Email updates go to')).toBeVisible();
+
+  // The host was told the votes are in, and never sees Mia's address.
+  expect((await mailsTo(page, 'host-mail@example.com')).map((m) => m.subject)).toContain('The food votes are in for Midnight poetry party');
+  await page.reload();
+  await expect(page.getByText('mia-mail@example.com')).toHaveCount(0);
+  await tap(page, 'Find the middle');
+  await tap(page, 'Star Table');
+  await tap(page, 'Lock in Star Table and share');
+  await expect(page.getByText('It is on.')).toBeVisible();
+
+  const news = (await mailsTo(page, 'mia-mail@example.com')).at(-1)!;
+  expect(news.subject).toBe('It is on: Midnight poetry party');
+  expect(news.text).toContain('Star Table');
+  await other.goto(news.text.match(/http\S+\?stop=\S+/)![0]);
+  await expect(other.getByRole('status')).toHaveText('Email updates are off. Your address is forgotten.');
+  await mia.page.reload();
+  await expect(mia.page.getByText('Email me if the plan changes')).toBeVisible();
+
+  // A host can switch their own emails off.
+  await page.goto(`${APP}/account`);
+  const toggle = page.getByRole('switch', { name: /Email me about my meetups/ });
+  await expect(toggle).toHaveAttribute('aria-checked', 'true');
+  await toggle.click();
+  await expect(toggle).toHaveAttribute('aria-checked', 'false');
+});

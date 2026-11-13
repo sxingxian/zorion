@@ -15,9 +15,13 @@
     "ENVIRONMENT": "production",
     "APP_ORIGIN": "https://zorionapp.midnightpoetry.studio",
     "SITE_ORIGIN": "https://zorion.midnightpoetry.studio",
-    "PLACES_PROVIDER": "osm"
+    "PLACES_PROVIDER": "osm",
+    // Free routed trip times (Admin > Categories & rules > OpenStreetMap routing). These are the public servers
+    // run by FOSSGIS: one request a second, no guarantee of availability. Point them at your own OSRM for real traffic.
+    "OSRM_FOOT_URL": "https://routing.openstreetmap.de/routed-foot",
+    "OSRM_BIKE_URL": "https://routing.openstreetmap.de/routed-bike"
   }
   // Secrets (set with `wrangler secret put`): DATABASE_URL, PEPPER, TOTP_KEY, RESEND_API_KEY, EMAIL_FROM,
   // GOOGLE_PLACES_KEY, STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, STRIPE_PRICE_MONTHLY, STRIPE_PRICE_YEARLY
-  // Optional: GOOGLE_ROUTES_KEY (routed trip times; falls back to GOOGLE_PLACES_KEY), OVERPASS_URL and NOMINATIM_URL (your own map servers)
+  // Optional: ORS_API_KEY (openrouteservice, free plan), GOOGLE_ROUTES_KEY (falls back to GOOGLE_PLACES_KEY), OVERPASS_URL and NOMINATIM_URL (your own map servers)
 }

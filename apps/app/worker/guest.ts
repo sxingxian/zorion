@@ -5,6 +5,7 @@ import * as schemas from '@zorion/core/schemas';
 import type { Row } from '@zorion/db';
 import { type App, type C, Fail, body, clearStrikes, clientKey, guardLock, putCookie, readCookie, setting, strike } from './core';
 import { hmac, randomToken, sha256 } from './crypto';
+import { emailToken, guestForToken, later, sendConfirmation, tellHost } from './mail';
 import { type Loaded, load, lookupStart, summarise, tripMinutes } from './meetups';
 import { directionsUrl } from './places';
 
@@ -56,7 +57,10 @@ function needAmend(_c: C, p: Row, alreadySet: boolean): void {
 async function noteChange(c: C, L: Loaded, p: Row, kind: string, detail: string): Promise<void> {
   if (L.m.status !== 'confirmed') return; // before confirmation the host sees changes live in the lobby
   await c.get('deps').db.query('insert into changes (meetup_id, participant_id, kind, detail) values ($1, $2, $3, $4)', [L.m.id, p.id, kind, detail.slice(0, 120)]);
+  await later(c, tellHost(c.get('deps'), L.m.id, 'change', `${p.name}: ${detail.slice(0, 120)}`));
 }
+
+const maskEmail = (e: string): string => e.replace(/^(.).*(@.*)$/, '$1•••$2');
 
 function guestView(c: C, L: Loaded, who: Row | null, dateChange: { replies: string; at: string } | null = null) {
   const s = summarise(L);
@@ -89,6 +93,7 @@ function guestView(c: C, L: Loaded, who: Row | null, dateChange: { replies: stri
     })),
     dateChange,
     me: who && {
+      email: who.email ? { address: maskEmail(who.email), confirmed: !!who.email_confirmed } : null,
       id: who.id, name: who.name, rsvp: who.rsvp, rsvpIsDefault: who.rsvp_is_default, dates: who.dates, noDateWorks: who.no_date_works, categories: who.categories, place: who.place,
       hasLocation: who.lat !== null, joinedLate: who.joined_late, canAmend: !!who.can_amend,
       pickedSetDate: s.setDate ? (who.dates as string[]).includes(s.setDate) : null,
@@ -194,6 +199,7 @@ guest.post('/:token/dates', async (c) => {
     ['update participants set no_date_works = $2 where id = $1', [p.id, input.none]],
     ...(input.none ? [] : ids.map((id): [string, unknown[]] => ['insert into date_votes (participant_id, option_id) values ($1, $2)', [p.id, id]])),
   ]);
+  await later(c, tellHost(c.get('deps'), L.m.id, 'dates'));
   return respond(c, L);
 });
 
@@ -231,6 +237,7 @@ guest.post('/:token/categories', async (c) => {
     ['delete from category_votes where participant_id = $1', [p.id]],
     ...picked.map((k): [string, unknown[]] => ['insert into category_votes (participant_id, meetup_id, key) values ($1, $2, $3)', [p.id, L.m.id, k]]),
   ]);
+  await later(c, tellHost(c.get('deps'), L.m.id, 'categories'));
   return respond(c, L);
 });
 
@@ -243,6 +250,47 @@ guest.post('/:token/rsvp', async (c) => {
   needAmend(c, p, p.rsvp !== 'none' && !p.rsvp_is_default && p.rsvp !== input.rsvp);
   await c.get('deps').db.query('update participants set rsvp = $2, rsvp_is_default = false where id = $1', [p.id, input.rsvp]);
   if (p.rsvp !== input.rsvp) await noteChange(c, L, p, 'rsvp', `Reply: ${p.rsvp === 'no' ? "can't go" : p.rsvp} to ${input.rsvp === 'no' ? "can't go" : input.rsvp}`);
+  return respond(c, L);
+});
+
+// ----- optional email updates for a guest -----
+
+/** A guest leaves an address. Nothing is sent to it, apart from one confirmation, until they confirm from their inbox. */
+guest.post('/:token/email', async (c) => {
+  const L = await open(c);
+  const p = await me(c, L);
+  if (p.is_host) throw new Fail(409, 'host', 'Hosts get their emails through their account.');
+  const { email } = await body(c, z.object({ email: schemas.email }));
+  const deps = c.get('deps');
+  // Each confirmation is an email to an address we have not verified, so keep them few.
+  const mine = `guest-email:${p.id}`;
+  const net = `guest-email-net:${await clientKey(c)}`;
+  await guardLock(deps.db, mine);
+  await guardLock(deps.db, net);
+  await strike(deps.db, mine, 3, 60 * 24, 60 * 24);
+  await strike(deps.db, net, 10, 60, 60);
+  await deps.db.query('update participants set email = $2, email_confirmed = false where id = $1', [p.id, email]);
+  await later(c, sendConfirmation(deps, L, { ...p, email }));
+  return respond(c, L);
+});
+
+/** Opened from the confirmation email, possibly in a different browser, so the link itself is the proof. */
+guest.post('/:token/email/confirm', async (c) => {
+  const L = await open(c);
+  const { t } = await body(c, z.object({ t: z.string().max(120) }));
+  const p = await guestForToken(c.get('deps'), L, t);
+  if (!p) throw new Fail(404, 'not_found', 'That link has expired. Ask for email updates again from the meetup page.');
+  await c.get('deps').db.query('update participants set email_confirmed = true where id = $1', [p.id]);
+  return c.json({ ok: true, name: p.name });
+});
+
+/** Stops the emails and forgets the address: from the link in any email, or from the meetup page. */
+guest.post('/:token/email/stop', async (c) => {
+  const L = await open(c);
+  const { t } = await body(c, z.object({ t: z.string().max(120).optional() }));
+  const p = t ? await guestForToken(c.get('deps'), L, t) : await whoAmI(c, L);
+  if (p) await c.get('deps').db.query('update participants set email = null, email_confirmed = false where id = $1', [p.id]);
+  if (t) return c.json({ ok: true }); // the same answer whether or not the link was still good
   return respond(c, L);
 });
 
@@ -260,5 +308,6 @@ guest.post('/:token/place', async (c) => {
     ['update participants set rsvp = $2, rsvp_is_default = false where id = $1', [p.id, rsvpAfterPlaceVote(p.rsvp)]],
   ]);
   if (p.place && p.place !== id) await noteChange(c, L, p, 'place', `Place vote: ${L.places.find((x) => x.id === p.place)?.name ?? '?'} to ${place.name}`);
+  await later(c, tellHost(c.get('deps'), L.m.id, 'place'));
   return respond(c, L);
 });

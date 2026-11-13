@@ -23,8 +23,10 @@ The product rules and screen designs live in the Zorion project on claude.ai ("Z
 - Privacy and terms pages (drafts for review).
 - Browser tests for the main flows (`npm run e2e`).
 
+- Emails beyond sign-in codes: news for hosts, and opt-in updates for guests.
+- Free routed trip times through an OSRM server or openrouteservice.
+
 ## Not built yet
 
-- Emails other than sign-in codes. Guests have no email address, so the host shares the link.
-- A free routing option. Routed times need Google; without it, times are estimates.
+- Routed transit times without Google. No free service offers them as a matrix.
 - Pro prices and group sizes are placeholders: prices come from Stripe, group sizes from the admin portal (8 free, 30 Pro by default).

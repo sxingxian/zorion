@@ -6,8 +6,9 @@ import { type Db, type Row, one } from '@zorion/db';
 import { type App, type C, type Deps, Fail, body, clientKey, guardLock, requireUser, setting, strike } from './core';
 import { randomToken } from './crypto';
 import { findStart } from './geocode';
+import { later, tellGuests } from './mail';
 import { findPlaces } from './places';
-import { activeRouting, routeMatrix } from './routing';
+import { activeRouting, canRoute, routeMatrix } from './routing';
 
 // ---------- loading a meetup with everything attached ----------
 export interface Loaded {
@@ -337,6 +338,7 @@ meetups.post('/:id/date', async (c) => {
     if (defaultRsvpAfterDateSet(p.dates, id) === 'going') statements.push(['update participants set rsvp = $2, rsvp_is_default = true where id = $1', [p.id, 'going']]);
   }
   await c.get('deps').db.batch(statements);
+  await later(c, tellGuests(c.get('deps'), L.m.id, 'date_set'));
   return respond(c, L.m.id);
 });
 
@@ -371,11 +373,12 @@ meetups.post('/:id/middle', async (c) => {
   const candidates = found.places.map((p) => ({ ...p, id: p.ref }));
   let ranked = rankPlaces(candidates, people, L.m.travel_mode);
   let routed = false;
-  if ((await activeRouting(deps)) === 'google') {
+  const routing = await activeRouting(deps);
+  if (canRoute(deps, routing, L.m.travel_mode)) {
     // Route only the best ten by estimate: enough to reorder the list, few enough to stay cheap.
     const top = scorePlaces(candidates, people, L.m.travel_mode).slice(0, 10).map((r) => r.place);
     try {
-      const matrix = await routeMatrix(deps, people, top, L.m.travel_mode, L.m.starts_at ? new Date(L.m.starts_at) : null);
+      const matrix = await routeMatrix(deps, routing, people, top, L.m.travel_mode, L.m.starts_at ? new Date(L.m.starts_at) : null);
       const known = (personId: string, placeId: string) => matrix[people.findIndex((p) => p.id === personId)]?.[top.findIndex((t) => t.id === placeId)];
       ranked = rankPlaces(top, people, L.m.travel_mode, undefined, known);
       routed = true;
@@ -410,6 +413,7 @@ meetups.post('/:id/shortlist', async (c) => {
       ['update places set shortlisted = (id = $2) where meetup_id = $1', [L.m.id, picked[0]]],
       ['update meetups set chosen_place = $2, status = $3, confirmed_at = now(), updated_at = now() where id = $1', [L.m.id, picked[0], 'confirmed']],
     ]);
+    await later(c, tellGuests(c.get('deps'), L.m.id, 'confirmed'));
     return respond(c, L.m.id);
   }
   if (!hostPick || !picked.includes(hostPick)) throw new Fail(409, 'vote_first', 'Cast your own vote for one of the places first.');
@@ -420,6 +424,7 @@ meetups.post('/:id/shortlist', async (c) => {
     ['insert into place_votes (participant_id, place_id) values ($1, $2)', [host.id, hostPick]],
     ['update meetups set status = $2, updated_at = now() where id = $1', [L.m.id, 'place_vote']],
   ]);
+  await later(c, tellGuests(c.get('deps'), L.m.id, 'place_vote'));
   return respond(c, L.m.id);
 });
 
@@ -432,6 +437,7 @@ meetups.post('/:id/lock', async (c) => {
   const chosen = id && short.includes(id) ? id : s.placeLeaders.length === 1 ? s.placeLeaders[0]! : null;
   if (!chosen) throw new Fail(409, 'tie', 'It is a tie. Pick the place.', { leaders: s.placeLeaders });
   await c.get('deps').db.query('update meetups set chosen_place = $2, status = $3, confirmed_at = now(), updated_at = now() where id = $1', [L.m.id, chosen, 'confirmed']);
+  await later(c, tellGuests(c.get('deps'), L.m.id, 'confirmed'));
   return respond(c, L.m.id);
 });
 
@@ -457,6 +463,9 @@ meetups.patch('/:id', async (c) => {
     if (input.clearReplies) statements.push(["update participants set rsvp = 'none', rsvp_is_default = false where meetup_id = $1 and not is_host", [L.m.id]]);
   }
   if (statements.length) await c.get('deps').db.batch(statements);
+  if (input.startsAt && new Date(input.startsAt).getTime() !== (L.m.starts_at ? new Date(L.m.starts_at).getTime() : 0)) {
+    await later(c, tellGuests(c.get('deps'), L.m.id, input.clearReplies ? 'date_moved_cleared' : 'date_moved'));
+  }
   return respond(c, L.m.id);
 });
 

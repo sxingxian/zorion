@@ -213,7 +213,7 @@ export function createAdmin(overrides: Partial<Deps> = {}) {
   api.put('/settings', async (c) => {
     need(c, 'super');
     const input = await body(c, z.object({
-      places_provider: z.enum(['osm', 'google']).optional(), routing_provider: z.enum(['estimate', 'google']).optional(), own_categories: z.boolean().optional(), blocked_words: z.array(z.string().trim().min(2).max(24)).max(200).optional(),
+      places_provider: z.enum(['osm', 'google']).optional(), routing_provider: z.enum(['estimate', 'osrm', 'ors', 'google']).optional(), own_categories: z.boolean().optional(), blocked_words: z.array(z.string().trim().min(2).max(24)).max(200).optional(),
       group_size: z.object({ free: z.number().int().min(2).max(100), pro: z.number().int().min(2).max(200) }).optional(),
     }));
     const { db } = c.get('deps');

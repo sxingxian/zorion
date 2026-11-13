@@ -161,12 +161,12 @@ export const account = new Hono<App>();
 
 account.patch('/', async (c) => {
   const user = requireUser(c);
-  const input = await body(c, z.object({ theme: z.enum(['gold', 'pink']).optional(), displayName: z.string().max(40).optional() }));
+  const input = await body(c, z.object({ theme: z.enum(['gold', 'pink']).optional(), displayName: z.string().max(40).optional(), notify: z.boolean().optional() }));
   if (input.theme && user.plan !== 'pro' && input.theme === 'gold') throw new Fail(402, 'pro_only', 'The gold theme comes with Pro.');
   const name = input.displayName === undefined ? undefined : cleanName(input.displayName, LIMITS.inviteeName);
   if (input.displayName !== undefined && !name) throw new Fail(422, 'invalid', 'Enter a name.');
-  const row = await one(c.get('deps').db, `update users u set theme = coalesce($2, theme), display_name = coalesce($3, display_name) where id = $1
-     returning u.id, u.email, u.display_name, u.plan, u.theme, u.status, u.totp_enabled, (u.password_hash is not null) as has_password`, [user.id, input.theme ?? null, name ?? null]);
+  const row = await one(c.get('deps').db, `update users u set theme = coalesce($2, theme), display_name = coalesce($3, display_name), notify = coalesce($4, notify) where id = $1
+     returning u.id, u.email, u.display_name, u.plan, u.theme, u.status, u.totp_enabled, (u.password_hash is not null) as has_password, u.notify`, [user.id, input.theme ?? null, name ?? null, input.notify ?? null]);
   return c.json({ user: toUser(row!) });
 });
 
