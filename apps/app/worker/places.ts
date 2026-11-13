@@ -34,7 +34,7 @@ async function searchOsm(deps: Deps, center: Point, radius: number, cat: Categor
   const filters = cat.own ? [`["name"~"${words}",i]`, `["cuisine"~"${words.toLowerCase().replace(/ /g, '_')}",i]`] : cat.osm;
   const around = `(around:${Math.round(radius)},${center.lat.toFixed(6)},${center.lng.toFixed(6)})`;
   const query = `[out:json][timeout:8];(${filters.map((f) => `nwr${f}${around};`).join('')});out center 40;`;
-  const res = await deps.fetch('https://overpass-api.de/api/interpreter', {
+  const res = await deps.fetch(deps.env.OVERPASS_URL || 'https://overpass-api.de/api/interpreter', {
     method: 'POST',
     headers: { 'content-type': 'application/x-www-form-urlencoded', 'user-agent': 'Zorion/1.0 (zorion.midnightpoetry.studio)' },
     body: `data=${encodeURIComponent(query)}`,

@@ -1,11 +1,13 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
-import { LIMITS, type Voter, cleanName, countedCategoryVotes, defaultRsvpAfterDateSet, fairMiddle, isBlockedName, isOwnCategoryAllowed, leaders, maxCategoryVotes, maxShortlist, rankPlaces, tally, travelMinutes, waitingForCategoryVotes } from '@zorion/core';
+import { LIMITS, type Voter, cleanName, countedCategoryVotes, defaultRsvpAfterDateSet, fairMiddle, isBlockedName, isOwnCategoryAllowed, leaders, maxCategoryVotes, maxShortlist, rankPlaces, scorePlaces, tally, travelMinutes, waitingForCategoryVotes } from '@zorion/core';
 import * as schemas from '@zorion/core/schemas';
 import { type Db, type Row, one } from '@zorion/db';
-import { type App, type C, type Deps, Fail, body, requireUser, setting } from './core';
+import { type App, type C, type Deps, Fail, body, clientKey, guardLock, requireUser, setting, strike } from './core';
 import { randomToken } from './crypto';
+import { findStart } from './geocode';
 import { findPlaces } from './places';
+import { activeRouting, routeMatrix } from './routing';
 
 // ---------- loading a meetup with everything attached ----------
 export interface Loaded {
@@ -14,12 +16,14 @@ export interface Loaded {
   dates: Row[];
   people: Row[];
   places: Row[];
+  /** Routed minutes, where a routing service supplied them. */
+  times: Row[];
 }
 
 export async function load(db: Db, by: { id: string } | { token: string }): Promise<Loaded | null> {
   const m = 'id' in by ? await one(db, 'select * from meetups where id = $1', [by.id]) : await one(db, 'select * from meetups where link_token = $1', [by.token]);
   if (!m) return null;
-  const [cats, dates, people, places] = await Promise.all([
+  const [cats, dates, people, places, times] = await Promise.all([
     db.query('select key, name, icon, own from meetup_categories where meetup_id = $1 order by position', [m.id]),
     db.query('select id, starts_at from date_options where meetup_id = $1 order by starts_at', [m.id]),
     db.query(
@@ -33,8 +37,35 @@ export async function load(db: Db, by: { id: string } | { token: string }): Prom
       [m.id],
     ),
     db.query('select * from places where meetup_id = $1 order by position', [m.id]),
+    db.query('select t.place_id, t.participant_id, t.minutes from place_times t join places p on p.id = t.place_id where p.meetup_id = $1', [m.id]),
   ]);
-  return { m, cats, dates, people, places };
+  return { m, cats, dates, people, places, times };
+}
+
+/** One person's trip to one place: the routed time when there is one, the estimate otherwise. */
+export function tripMinutes(L: Loaded, person: Row, place: Row): number | null {
+  if (person.lat === null) return null;
+  const routed = L.times.find((t) => t.place_id === place.id && t.participant_id === person.id);
+  return routed ? Number(routed.minutes) : travelMinutes({ lat: person.lat, lng: person.lng }, { lat: place.lat, lng: place.lng }, L.m.travel_mode);
+}
+
+/**
+ * Typed starting place. Limited per network, because every lookup is a call to an outside service.
+ * `cf` is Cloudflare's rough idea of where the caller is; it only puts nearby results first.
+ */
+export async function lookupStart(c: C, q: string) {
+  const deps = c.get('deps');
+  const key = `start-search:${await clientKey(c)}`;
+  await guardLock(deps.db, key);
+  await strike(deps.db, key, 15, 10, 10);
+  const cf = (c.req.raw as { cf?: { country?: string; latitude?: string; longitude?: string } }).cf;
+  const lat = Number(cf?.latitude);
+  const lng = Number(cf?.longitude);
+  try {
+    return await findStart(deps, q, { country: cf?.country, ...(Number.isFinite(lat) && Number.isFinite(lng) && cf?.latitude ? { lat, lng } : {}) });
+  } catch {
+    throw new Fail(409, 'search_failed', 'The place lookup did not answer. Try again in a moment, or share your GPS location.');
+  }
 }
 
 const voters = (L: Loaded): Voter[] =>
@@ -103,7 +134,7 @@ export function hostView(L: Loaded, deps: Deps, unseenChanges: number) {
     waiting: s.waiting,
     winner: L.m.winning_category,
     middle,
-    places: L.places.map((p) => ({ id: p.id, name: p.name, address: p.address, rating: p.rating, openNow: p.open_now, longest: p.longest_min, shortlisted: p.shortlisted, lat: p.lat, lng: p.lng, votes: s.placeTally.find((t) => t.key === p.id)?.votes ?? 0 })),
+    places: L.places.map((p) => ({ id: p.id, name: p.name, address: p.address, rating: p.rating, openNow: p.open_now, longest: p.longest_min, routed: p.routed, shortlisted: p.shortlisted, lat: p.lat, lng: p.lng, votes: s.placeTally.find((t) => t.key === p.id)?.votes ?? 0 })),
     maxShortlist: L.places.length ? maxShortlist(L.places.length) : 0,
     placeLeaders: s.placeLeaders,
     chosenPlace: L.m.chosen_place,
@@ -250,8 +281,19 @@ meetups.post('/:id/people/:pid/skip', async (c) => {
 meetups.post('/:id/location', async (c) => {
   const L = await owned(c);
   const at = await body(c, schemas.point);
-  await c.get('deps').db.query('update participants set lat = $2, lng = $3 where meetup_id = $1 and is_host', [L.m.id, at.lat, at.lng]);
+  const host = L.people.find((p) => p.is_host)!;
+  await c.get('deps').db.batch([
+    ['update participants set lat = $2, lng = $3 where id = $1', [host.id, at.lat, at.lng]],
+    ['delete from place_times where participant_id = $1', [host.id]], // routed from the old start, so no longer true
+  ]);
   return respond(c, L.m.id);
+});
+
+/** Type a starting place instead of sharing GPS. Returns up to five matches to choose from. */
+meetups.post('/:id/start-search', async (c) => {
+  await owned(c);
+  const { q } = await body(c, schemas.startSearch);
+  return c.json({ results: await lookupStart(c, q) });
 });
 
 /** The host votes first, before the link goes out. */
@@ -325,13 +367,31 @@ meetups.post('/:id/middle', async (c) => {
     throw new Fail(409, 'search_failed', 'The place search did not answer. Try again in a moment.');
   }
   if (found.places.length === 0) throw new Fail(409, 'no_places', `No places for ${cat.name} near the middle. Pick another category.`, { tally: s.categoryTally });
-  const ranked = rankPlaces(found.places.map((p) => ({ ...p, id: p.ref })), coming.map((p) => ({ id: p.id, lat: p.lat, lng: p.lng })), L.m.travel_mode);
+  const people = coming.map((p) => ({ id: p.id as string, lat: p.lat as number, lng: p.lng as number }));
+  const candidates = found.places.map((p) => ({ ...p, id: p.ref }));
+  let ranked = rankPlaces(candidates, people, L.m.travel_mode);
+  let routed = false;
+  if ((await activeRouting(deps)) === 'google') {
+    // Route only the best ten by estimate: enough to reorder the list, few enough to stay cheap.
+    const top = scorePlaces(candidates, people, L.m.travel_mode).slice(0, 10).map((r) => r.place);
+    try {
+      const matrix = await routeMatrix(deps, people, top, L.m.travel_mode, L.m.starts_at ? new Date(L.m.starts_at) : null);
+      const known = (personId: string, placeId: string) => matrix[people.findIndex((p) => p.id === personId)]?.[top.findIndex((t) => t.id === placeId)];
+      ranked = rankPlaces(top, people, L.m.travel_mode, undefined, known);
+      routed = true;
+      for (const r of ranked) for (const p of people) if (known(p.id, r.place.id) == null) delete r.minutes[p.id]; // keep only routed cells
+    } catch {
+      routed = false; // the estimate is always there to fall back on
+    }
+  }
+  const ids = ranked.map(() => crypto.randomUUID());
   await deps.db.batch([
     ['delete from places where meetup_id = $1', [L.m.id]],
     ...ranked.map((r, i): [string, unknown[]] => [
-      'insert into places (meetup_id, provider, provider_ref, name, address, lat, lng, rating, open_now, longest_min, position) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)',
-      [L.m.id, found.provider, r.place.ref, r.place.name, r.place.address, r.place.lat, r.place.lng, r.place.rating, r.place.openNow, r.longest, i],
+      'insert into places (id, meetup_id, provider, provider_ref, name, address, lat, lng, rating, open_now, longest_min, position, routed) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)',
+      [ids[i], L.m.id, found.provider, r.place.ref, r.place.name, r.place.address, r.place.lat, r.place.lng, r.place.rating, r.place.openNow, r.longest, i, routed],
     ]),
+    ...(routed ? ranked.flatMap((r, i) => Object.entries(r.minutes).map(([personId, minutes]): [string, unknown[]] => ['insert into place_times (place_id, participant_id, minutes) values ($1, $2, $3)', [ids[i], personId, minutes]])) : []),
     ['update meetups set winning_category = $2, middle_lat = $3, middle_lng = $4, status = $5, chosen_place = null, updated_at = now() where id = $1', [L.m.id, winner, middle.lat, middle.lng, 'places']],
   ]);
   return respond(c, L.m.id);

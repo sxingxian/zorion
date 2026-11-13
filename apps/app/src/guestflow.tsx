@@ -1,6 +1,7 @@
 import { type ReactNode, useCallback, useEffect, useState } from 'react';
 import { LIMITS } from '@zorion/core';
 import { CrewMap } from './map';
+import { StartPicker } from './start';
 import { ApiError, Link, api, useAction, when } from './lib';
 import { Btn, Chevron, Chip, Codes, Facts, Field, Header, Icon, Loading, Mascot, Note, Oops, Pick, Sponsored, Toast, copyText, locate } from './ui';
 
@@ -40,6 +41,7 @@ export function GuestFlow({ token, m, setM }: { token: string; m: M; setM: (m: M
   const [code, setCode] = useState('');
   const [list, setList] = useState<string[]>([]);
   const [confirmedReply, setConfirmedReply] = useState(false);
+  const [typing, setTyping] = useState(false);
   const setView = (v: View) => { clear(); setCode(''); setViewRaw(v); };
   const call = (path: string, body?: unknown) => run(async () => setM((await api('POST', `/g/${token}${path}`, body)).meetup));
   const me = m.me as M | null;
@@ -216,11 +218,24 @@ export function GuestFlow({ token, m, setM }: { token: string; m: M; setM: (m: M
         <main className="screen" style={{ padding: '6px 20px 24px', gap: 14 }}>
           <div className="mapbox" style={{ margin: 0, borderRadius: 20, flex: 'none', height: 200 }}><CrewMap label="Map with your position" /></div>
           <h1 className="display h1">Where are you starting from?</h1>
-          <Note ok>Used once, to work out the fair middle.</Note>
-          <Note ok>The crew sees your travel time, never where you are.</Note>
-          <Note ok>Deleted when the meetup ends.</Note>
-          <Oops>{error}</Oops>
-          <Btn className="push" busy={busy} onClick={() => run(async () => { setM((await api('POST', `/g/${token}/location`, await locate())).meetup); done(); })}>Share my GPS location</Btn>
+          {typing ? (
+            <>
+              <StartPicker saving={busy} search={async (q) => (await api('POST', `/g/${token}/start-search`, { q })).results} onPick={(at) => run(async () => { setM((await api('POST', `/g/${token}/location`, at)).meetup); setTyping(false); done(); })} />
+              <Oops>{error}</Oops>
+              <Btn kind="text" className="push" onClick={() => { clear(); setTyping(false); }}>Use my GPS location instead</Btn>
+            </>
+          ) : (
+            <>
+              <Note ok>Used once, to work out the fair middle.</Note>
+              <Note ok>The crew sees your travel time, never where you are.</Note>
+              <Note ok>Deleted when the meetup ends.</Note>
+              <Oops>{error}</Oops>
+              <div className="push stack" style={{ gap: 10 }}>
+                <Btn busy={busy} onClick={() => run(async () => { setM((await api('POST', `/g/${token}/location`, await locate())).meetup); done(); })}>Share my GPS location</Btn>
+                <Btn kind="text" onClick={() => { clear(); setTyping(true); }}>Type a place instead</Btn>
+              </div>
+            </>
+          )}
         </main>
       </>
     );

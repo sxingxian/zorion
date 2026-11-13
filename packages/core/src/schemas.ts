@@ -47,3 +47,6 @@ export const oneId = z.object({ id: uuid });
 
 export type CreateMeetup = z.infer<typeof createMeetup>;
 export type UpdateMeetup = z.infer<typeof updateMeetup>;
+
+/** Typed words for a starting place. */
+export const startSearch = z.object({ q: z.string().trim().min(3).max(120) });

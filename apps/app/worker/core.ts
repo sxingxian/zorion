@@ -15,6 +15,9 @@ export interface Env {
   EMAIL_FROM?: string;
   PLACES_PROVIDER?: string; // "osm" or "google"; the admin setting wins
   GOOGLE_PLACES_KEY?: string;
+  GOOGLE_ROUTES_KEY?: string; // optional; falls back to GOOGLE_PLACES_KEY
+  OVERPASS_URL?: string; // your own Overpass server, if you run one
+  NOMINATIM_URL?: string; // your own Nominatim server, if you run one
   STRIPE_SECRET_KEY?: string;
   STRIPE_WEBHOOK_SECRET?: string;
   STRIPE_PRICE_MONTHLY?: string;

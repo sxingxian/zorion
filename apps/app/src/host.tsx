@@ -1,6 +1,7 @@
 import { type ReactNode, useCallback, useEffect, useState } from 'react';
 import { LIMITS, OWN_ICONS, halfRoundedUp } from '@zorion/core';
 import { CrewMap, ring } from './map';
+import { StartPicker } from './start';
 import { ApiError, Link, type Me, api, deviceZone, fromLocalInput, navigate, toLocalInput, useAction, when } from './lib';
 import { Btn, Check, Chevron, Chip, Facts, Field, Header, Icon, Loading, Mascot, Note, Oops, Person, Pick, Plus, Remove, Seg, Sponsored, Switch, Tally, Toast, copyText, locate } from './ui';
 
@@ -190,6 +191,7 @@ export function HostMeetup({ me, id, sub, pid, m, setM }: { me: Me; id: string; 
   const [ids, setIds] = useState<string[]>([]);
   const [pick, setPick] = useState<string>('');
   const [choice, setChoice] = useState<{ kind: string; options: string[] } | null>(null);
+  const [typing, setTyping] = useState(false);
   const call = (path: string, body?: unknown, method: 'POST' | 'PATCH' = 'POST') => run(async () => setM((await api(method, `/meetups/${id}${path}`, body)).meetup));
   const base = `/m/${id}`;
   const tz = m.timeZone;
@@ -354,8 +356,18 @@ export function HostMeetup({ me, id, sub, pid, m, setM }: { me: Me; id: string; 
               </>
             ) : (
               <>
-                <p className="small center">{m.hasLocation ? 'Everyone going or maybe has voted.' : 'Finding the middle uses where you are starting from, once.'}</p>
-                <Btn busy={busy} onClick={() => findMiddle()}>Find the middle</Btn>
+                {typing ? (
+                  <>
+                    <StartPicker saving={busy} search={async (q) => (await api('POST', `/meetups/${id}/start-search`, { q })).results} onPick={(at) => run(async () => { setM((await api('POST', `/meetups/${id}/location`, at)).meetup); setTyping(false); })} />
+                    <Btn kind="text" onClick={() => setTyping(false)}>Use my GPS location instead</Btn>
+                  </>
+                ) : (
+                  <>
+                    <p className="small center">{m.hasLocation ? 'Everyone going or maybe has voted. Your start is saved.' : 'Finding the middle uses where you are starting from, once.'}</p>
+                    <Btn busy={busy} onClick={() => findMiddle()}>Find the middle</Btn>
+                    <Btn kind="text" onClick={() => setTyping(true)}>{m.hasLocation ? 'Change where I start' : 'Type where I start instead'}</Btn>
+                  </>
+                )}
               </>
             )}
           </div>
@@ -387,7 +399,7 @@ export function HostMeetup({ me, id, sub, pid, m, setM }: { me: Me; id: string; 
       <>
         <Header title={m.name} sub={`${catName(m, m.winner)} · ${m.places.length} places near the middle`} back="/" step={3} />
         <main className="screen" style={{ gap: 10 }}>
-          <div className="row between" style={{ alignItems: 'flex-end' }}><div className="stack" style={{ gap: 2 }}><h2 className="display h1">Closest to everyone</h2><p className="small">{sel.length === 1 ? 'One place picked: no vote. The link takes everyone straight there.' : `Pick 1 to go straight there, or up to ${m.maxShortlist} for a final vote.`}</p></div><Chip>{sel.length} of {m.maxShortlist}</Chip></div>
+          <div className="row between" style={{ alignItems: 'flex-end' }}><div className="stack" style={{ gap: 2 }}><h2 className="display h1">Closest to everyone</h2><p className="small">{m.places.some((p: M) => p.routed) ? 'Trip times follow real routes. ' : 'Trip times are estimates from distance. '}{sel.length === 1 ? 'One place picked: no vote. The link takes everyone straight there.' : `Pick 1 to go straight there, or up to ${m.maxShortlist} for a final vote.`}</p></div><Chip>{sel.length} of {m.maxShortlist}</Chip></div>
           <Facts rows={[['Middle', `Longest trip ${longest} min`]]} />
           <div className="stack" style={{ gap: 6 }}>{m.places.map((p: M, i: number) => <Pick key={p.id} on={sel.includes(p.id)} onClick={() => flip(p.id)} lead={<span className="display h2" style={{ width: 22, color: 'var(--muted)' }}>{i + 1}</span>} title={p.name} meta={`${p.rating ? `Rated ${p.rating} · ` : ''}longest trip ${p.longest} min${p.openNow === false ? ' · closed now' : ''}`} />)}</div>
           <Sponsored placement="shortlist" category={m.winner} show={me.plan !== 'pro'} />

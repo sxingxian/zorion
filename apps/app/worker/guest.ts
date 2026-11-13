@@ -1,11 +1,11 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
-import { LIMITS, cleanName, guestSeesAds, isBlockedName, makeGuestCode, maxCategoryVotes, normaliseGuestCode, rsvpAfterPlaceVote, travelMinutes } from '@zorion/core';
+import { LIMITS, cleanName, guestSeesAds, isBlockedName, makeGuestCode, maxCategoryVotes, normaliseGuestCode, rsvpAfterPlaceVote } from '@zorion/core';
 import * as schemas from '@zorion/core/schemas';
 import type { Row } from '@zorion/db';
 import { type App, type C, Fail, body, clearStrikes, clientKey, guardLock, putCookie, readCookie, setting, strike } from './core';
 import { hmac, randomToken, sha256 } from './crypto';
-import { type Loaded, load, summarise } from './meetups';
+import { type Loaded, load, lookupStart, summarise, tripMinutes } from './meetups';
 import { directionsUrl } from './places';
 
 /**
@@ -84,7 +84,7 @@ function guestView(c: C, L: Loaded, who: Row | null, dateChange: { replies: stri
     winner,
     places: visible.map((p) => ({
       id: p.id, name: p.name, address: p.address, rating: p.rating, openNow: p.open_now,
-      myMinutes: who && who.lat !== null ? travelMinutes({ lat: who.lat, lng: who.lng }, { lat: p.lat, lng: p.lng }, L.m.travel_mode) : null,
+      myMinutes: who ? tripMinutes(L, who, p) : null, routed: !!p.routed,
       ...(L.m.status === 'confirmed' ? { lat: p.lat, lng: p.lng, directions: directionsUrl({ lat: p.lat, lng: p.lng }, L.m.travel_mode) } : {}),
     })),
     dateChange,
@@ -202,9 +202,20 @@ guest.post('/:token/location', async (c) => {
   const p = await me(c, L);
   const at = await body(c, schemas.point);
   needAmend(c, p, p.lat !== null);
-  await c.get('deps').db.query('update participants set lat = $2, lng = $3 where id = $1', [p.id, at.lat, at.lng]);
+  await c.get('deps').db.batch([
+    ['update participants set lat = $2, lng = $3 where id = $1', [p.id, at.lat, at.lng]],
+    ['delete from place_times where participant_id = $1', [p.id]], // routed from the old start, so no longer true
+  ]);
   await noteChange(c, L, p, 'location', 'New starting point');
   return respond(c, L);
+});
+
+/** Type a starting place instead of sharing GPS. Returns up to five matches to choose from. */
+guest.post('/:token/start-search', async (c) => {
+  const L = await open(c);
+  await me(c, L);
+  const { q } = await body(c, schemas.startSearch);
+  return c.json({ results: await lookupStart(c, q) });
 });
 
 guest.post('/:token/categories', async (c) => {

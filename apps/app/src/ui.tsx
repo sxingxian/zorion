@@ -59,10 +59,10 @@ export function Header({ title, sub, back, onBack, step, right }: { title: React
   );
 }
 
-export function Btn({ children, onClick, to, kind, disabled, busy, className = '' }: { children: ReactNode; onClick?: () => void; to?: string; kind?: 'second' | 'text'; disabled?: boolean; busy?: boolean; className?: string }) {
+export function Btn({ children, onClick, to, kind, disabled, busy, className = '', type = 'button' }: { children: ReactNode; onClick?: () => void; to?: string; kind?: 'second' | 'text'; disabled?: boolean; busy?: boolean; className?: string; type?: 'button' | 'submit' }) {
   const cls = `btn ${kind ?? ''} ${className}`;
   if (to && !disabled) return <Link to={to} className={cls}>{children}</Link>;
-  return <button className={cls} onClick={onClick} disabled={disabled || busy} aria-busy={busy || undefined}>{busy ? 'One moment…' : children}</button>;
+  return <button type={type} className={cls} onClick={onClick} disabled={disabled || busy} aria-busy={busy || undefined}>{busy ? 'One moment…' : children}</button>;
 }
 
 export function Field({ label, value, onChange, max, type = 'text', placeholder, autoComplete, inputMode }: { label: string; value: string; onChange: (v: string) => void; max?: number; type?: string; placeholder?: string; autoComplete?: string; inputMode?: 'numeric' | 'email' | 'text' }) {

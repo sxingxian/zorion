@@ -24,6 +24,11 @@ const TYPES: Record<string, string> = { '.html': 'text/html; charset=utf-8', '.j
 // Made-up places scattered around wherever the search is centred.
 const NAMES = ['Lucky Trotter', 'Midnight Oven', 'Pink Hat Kitchen', 'Fair Middle', 'Star Table', 'The Snout', 'Poetry Corner', 'Good Fortune'];
 const fakePlaces = (async (_url: string, init?: RequestInit) => {
+  if (String(_url).includes('nominatim')) {
+    // Made-up matches for a typed starting place.
+    const q = new URL(String(_url)).searchParams.get('q') ?? 'Somewhere';
+    return Response.json([{ lat: '1.3009', lon: '103.8559', display_name: `${q}, Demo District, Singapore` }, { lat: '1.2966', lon: '103.8520', display_name: `${q} Road, Demo District, Singapore` }]);
+  }
   const m = decodeURIComponent(String(init?.body ?? '')).match(/around:\d+,(-?[\d.]+),(-?[\d.]+)/);
   const lat = Number(m?.[1] ?? 1.3);
   const lng = Number(m?.[2] ?? 103.84);
