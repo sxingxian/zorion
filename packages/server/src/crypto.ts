@@ -72,9 +72,19 @@ export async function verifyPassword(password: string, stored: string | null, pe
 }
 
 // ---------- authenticator secrets at rest ----------
-async function aesKey(keyB64: string): Promise<CryptoKey> {
-  const raw = fromB64(keyB64);
-  if (raw.length !== 32) throw new Error('TOTP_KEY must be 32 random bytes, base64 encoded');
+// TOTP_KEY is either 32 random bytes in base64 (from scripts/generate-secrets.mjs) or any
+// random string of 32+ characters (from a password manager), which is hashed to 32 bytes.
+// The same value always gives the same key, so existing secrets keep opening.
+async function aesKey(key: string): Promise<CryptoKey> {
+  let raw: Uint8Array | null = null;
+  if (/^[A-Za-z0-9+/_-]{43}=?$/.test(key)) {
+    const bytes = fromB64(key);
+    if (bytes.length === 32) raw = bytes;
+  }
+  if (!raw) {
+    if (key.length < 32) throw new Error('TOTP_KEY must be at least 32 random characters');
+    raw = new Uint8Array(await crypto.subtle.digest('SHA-256', enc.encode(key)));
+  }
   return crypto.subtle.importKey('raw', raw as BufferSource, 'AES-GCM', false, ['encrypt', 'decrypt']);
 }
 export async function seal(plain: string, keyB64: string): Promise<string> {

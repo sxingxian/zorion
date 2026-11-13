@@ -1,5 +1,5 @@
 // Makes the random secrets Zorion needs and prints them once. Nothing is written to disk.
-// Prefer the "Create Worker secrets" GitHub workflow, which saves them into Cloudflare without showing them.
+// You can also make each one with a password manager: 40+ random letters and numbers.
 //   node scripts/generate-secrets.mjs
 import { randomBytes } from 'node:crypto';
 

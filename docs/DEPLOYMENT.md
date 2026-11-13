@@ -13,12 +13,67 @@ Both Workers use the same database and the same `PEPPER` and `TOTP_KEY`.
 
 1. Create a project at neon.tech. Choose **Region: AWS Asia Pacific (Singapore)**. Name the database `zorion`.
 2. Project → **Connect** → copy the connection string (the pooled one is fine). This is `DATABASE_URL`. Store it in your password manager.
-3. GitHub → the repository → Settings → Secrets and variables → Actions → **Secrets** tab → add `DATABASE_URL`.
-4. GitHub app → the repository → **Actions** → **Deploy database** → Run workflow. It creates every table. It refuses to run for a commit whose CI did not pass, and the run summary shows what happened. Tick *dry run* to only list the migrations that would run.
+
+You don't create any tables yourself: Cloudflare's first build does it (section 2).
 
 Optional: Neon → **Branches** → create a `dev` branch for trying things without touching live data. Its connection string goes in `.dev.vars` on a computer (see the README).
 
-## 1b. Email (Resend)
+## 2. Cloudflare Workers (connected to GitHub)
+
+Cloudflare watches the GitHub repository and picks up every update to `main` by itself. GitHub never sends anything to Cloudflare or Neon, and holds none of their keys; its Actions only test.
+
+For each update, Cloudflare builds both Workers. Each build installs the locked packages, runs the type checks and tests, applies any new database migrations, builds, and then deploys. If any step fails, that Worker keeps serving the version it had. More in **How each update goes live** below.
+
+Create two Workers in **Workers & Pages → Create → Import a repository** → GitHub → this repository. Their names must match `name` in each `wrangler.jsonc` (`zorion-app`, `zorion-site`).
+
+### `zorion-app` (PWA)
+
+- **Root directory:** `/` (repository root)
+- **Build command:** `npm ci && npm run cloudflare:app`
+- **Deploy command:** `npm exec -w @zorion/app -- wrangler deploy`
+- **Build variables and secrets:** `NODE_VERSION` = `22`, and `DATABASE_URL` as a **Secret** (from section 1)
+
+### `zorion-site` (website and admin portal)
+
+- **Root directory:** `/` (repository root)
+- **Build command:** `npm ci && npm run cloudflare:site`
+- **Deploy command:** `npm exec -w @zorion/site -- wrangler deploy`
+- **Build variables and secrets:** `NODE_VERSION` = `22`, and `DATABASE_URL` as a **Secret**
+
+What each build runs lives in `package.json` (`cloudflare:app`, `cloudflare:site`), so changes to it arrive with the code. Build variables are only seen by the build, never by the running Worker; the Worker gets its own copy of `DATABASE_URL` in section 3. Both builds can run migrations at the same moment safely: one waits for the other, then finds nothing left to do.
+
+Production branch: `main` (Settings → Build → Branch control). Leave builds for other branches off: preview addresses are switched off, and those builds would skip migrations anyway.
+
+Everything the Workers read at runtime is either in `wrangler.jsonc` `vars` (addresses, places provider, routing servers) or a secret in the dashboard. Variables you add in the dashboard survive each deploy (`keep_vars`).
+
+The first deploy creates every table, but the app and admin portal answer with errors until section 3 is done.
+
+### Custom domains
+
+Each `wrangler.jsonc` claims its domain as a Worker custom domain, so the first deploy creates the DNS record and certificate, provided `midnightpoetry.studio` is a zone in the same Cloudflare account. If the domain is attached to another Worker or Pages project, remove it there first. Neither Worker answers on `*.workers.dev`.
+
+### Hourly job
+
+`zorion-app` runs at 17 minutes past every hour (`triggers.crons`). It erases starting points, guest emails and guest Telegram chats of meetups that have ended, deletes old meetups and expired codes, and connects the Telegram bot if it's set up. Check it in Cloudflare → `zorion-app` → Settings → Trigger events.
+
+## 3. Secrets for both Workers
+
+Add these in Cloudflare → each Worker → Settings → **Variables and Secrets**, type **Secret**. Secrets apply to the next request; no redeploy is needed.
+
+| Secret | `zorion-app` | `zorion-site` | Value |
+| --- | --- | --- | --- |
+| `DATABASE_URL` | ✓ | ✓ | From section 1 |
+| `PEPPER` | ✓ | ✓, same value | 40+ random letters and numbers |
+| `TOTP_KEY` | ✓ | ✓, same value | 40+ random letters and numbers |
+| `TELEGRAM_WEBHOOK_SECRET` | ✓ | | 40+ random letters and numbers, only if you set up Telegram |
+
+`PEPPER` keys passwords, codes and session tokens; `TOTP_KEY` encrypts authenticator keys. Make each with your password manager's generator (letters and numbers, 40 or more) and save them there. On a computer, `node scripts/generate-secrets.mjs` prints a fresh set once instead.
+
+**Never change `PEPPER` or `TOTP_KEY` once people use Zorion:** it signs everyone out and breaks every password, guest code and authenticator.
+
+**Never put `PEPPER`, `TOTP_KEY`, `DATABASE_URL`, Stripe keys or the bot token in the repository, in `wrangler.jsonc` `vars`, or in any `.env` file that is committed.**
+
+## 4. Email (Resend)
 
 Hosts sign in with a 6-digit code by email, and hosts and guests can ask for updates by email.
 
@@ -35,7 +90,7 @@ How email is used:
 - **Updates to hosts**: the date answers, the food votes or the place votes are complete, and a guest changed their reply after the plan was confirmed (at most one an hour per meetup). Hosts switch these off under Account.
 - **Updates to guests who ask**: the date is set, the place vote opens, it's on, and the date moved. A guest must confirm their address from their inbox first, and every email has a stop link.
 
-## 1c. Stripe (to sell Pro)
+## 5. Stripe (to sell Pro)
 
 1. Create the Stripe account for the business and finish activation (business details, bank account).
 2. Product catalogue → create **Zorion Pro** with a monthly and a yearly recurring price. Copy the two price ids (`price_…`).
@@ -46,7 +101,7 @@ How email is used:
 
 Until these are set, the Pro screen says billing isn't set up yet. A plan changes only when a signed webhook says so, never because the browser says so. Rehearse with the test-mode key, webhook and prices first, then swap in the live ones.
 
-## 2. First super admin
+## 6. First super admin
 
 Admins can't sign up. Create the first one in the browser:
 
@@ -59,57 +114,7 @@ Setup closes for good once any admin exists, even with the right token. Five wro
 
 From then on, admins always sign in with password, then authenticator. Sensitive actions (suspending or deleting a host, any change to ads) need a second admin's approval once there are two. To add more admins, run `npm run create-admin` on a computer (`apps/site/scripts/create-admin.ts`).
 
-## 3. Secrets for both Workers
-
-`PEPPER` keys passwords, codes and session tokens; `TOTP_KEY` encrypts authenticator keys. Both Workers need the same values, plus `DATABASE_URL`.
-
-**Without a computer:** GitHub app → the repository → Actions → **Create Worker secrets** → Run workflow. It makes `PEPPER`, `TOTP_KEY` and `TELEGRAM_WEBHOOK_SECRET` on GitHub's servers, copies `DATABASE_URL` from the repository secret, and saves them straight into both Workers. Nothing is printed. It refuses to run if `PEPPER` or `TOTP_KEY` already exist, because replacing them signs everyone out and breaks every password, guest code and authenticator; tick *replace* only on purpose.
-
-It needs two more repository secrets (Settings → Secrets and variables → Actions → Secrets):
-- `CLOUDFLARE_API_TOKEN`: Cloudflare → My Profile → API Tokens → Create token → template **Edit Cloudflare Workers**, limited to your account.
-- `CLOUDFLARE_ACCOUNT_ID`: Cloudflare → Workers & Pages → the account id on the right.
-
-Run it after the two Workers exist (section 4). Secrets apply to the next request; no redeploy is needed.
-
-**With a computer:** `node scripts/generate-secrets.mjs` prints fresh values once (nothing is written to disk). Add them in Cloudflare → each Worker → Settings → Variables and Secrets.
-
-**Never put `PEPPER`, `TOTP_KEY`, `DATABASE_URL`, Stripe keys or the bot token in the repository, in `wrangler.jsonc` `vars`, or in any `.env` file that is committed.**
-
-## 4. Cloudflare Workers (connected to Git)
-
-Cloudflare's **Workers & Pages → Create → Import a repository** sets up a Worker that builds and deploys on every push to `main`. Each Worker (`apps/*/worker/index.ts`) serves its own static files and API, and the security headers and Content-Security-Policy come from `apps/*/public/_headers`. Settings are in each app's `wrangler.jsonc`.
-
-Create two Workers from the GitHub repository. Their names must match `name` in the matching `wrangler.jsonc` (`zorion-app`, `zorion-site`).
-
-### `zorion-app` (PWA)
-
-- **Root directory:** `/` (repository root)
-- **Build command:** `npm ci && npm run build -w @zorion/app`
-- **Deploy command:** `npm exec -w @zorion/app -- wrangler deploy`
-- **Build variables:** `NODE_VERSION=22`
-
-### `zorion-site` (website and admin portal)
-
-- **Root directory:** `/` (repository root)
-- **Build command:** `npm ci && npm run build -w @zorion/site`
-- **Deploy command:** `npm exec -w @zorion/site -- wrangler deploy`
-- **Build variables:** `NODE_VERSION=22`
-
-Leave builds for non-production branches off (Settings → Build → Branch control → production branch only): both Workers have preview addresses switched off, so a preview build has nowhere to be seen.
-
-Everything the Workers read at runtime is either in `wrangler.jsonc` `vars` (addresses, places provider, routing servers) or a secret in the dashboard. Variables you add in the dashboard survive Git deploys (`keep_vars`).
-
-The first deploy works without secrets, but the app and admin portal answer with errors until section 3 is done.
-
-### Custom domains
-
-Each `wrangler.jsonc` claims its domain as a Worker custom domain, so the first deploy creates the DNS record and certificate, provided `midnightpoetry.studio` is a zone in the same Cloudflare account. If the domain is attached to another Worker or Pages project, remove it there first. Neither Worker answers on `*.workers.dev`.
-
-### Hourly job
-
-`zorion-app` runs at 17 minutes past every hour (`triggers.crons`). It erases starting points, guest emails and guest Telegram chats of meetups that have ended, deletes old meetups and expired codes, and connects the Telegram bot if it's set up. Check it in Cloudflare → `zorion-app` → Settings → Trigger events.
-
-## 4b. Google AdSense (website ads)
+## 7. Google AdSense (website ads)
 
 1. Apply for AdSense with `zorion.midnightpoetry.studio`. Approval can take days to weeks.
 2. AdSense → Privacy & messaging → **European regulations**: create and publish the message for visitors from the EEA, UK and Switzerland. Zorion's own banner asks everyone else before any Google script loads.
@@ -118,11 +123,11 @@ Each `wrangler.jsonc` claims its domain as a Worker custom domain, so the first 
 
 AdSense runs on the website only, never inside the app. Ads in the app are Zorion's own sponsored slots, also managed on that page.
 
-## 5. DNS
+## 8. DNS
 
-The Workers' first deploy creates both records (section 4). Keep the orange-cloud proxy on: the rate limits use the visitor's address from `CF-Connecting-IP`.
+The Workers' first deploy creates both records (section 2). Keep the orange-cloud proxy on: the rate limits use the visitor's address from `CF-Connecting-IP`.
 
-## 6. After the first deploy
+## 9. After the first deploy
 
 - [ ] Admin portal: sign in, and check the overview, categories and audit log load.
 - [ ] Sign in to the app as a host with an email code; check the email arrives.
@@ -161,22 +166,29 @@ Every routed choice sends starting points (with no names) to that service; the p
 Hosts (Account → Telegram) and guests (meetup page → Get updates → On Telegram) can get the same updates as email on Telegram, with the same subject and lines.
 
 1. In Telegram, message **@BotFather**, send `/newbot`, choose a name (e.g. "Zorion") and a username ending in `bot` (e.g. `ZorionMeetBot`). Copy the token.
-2. Cloudflare → `zorion-app` → Settings → Variables and Secrets → add, as **Secret**: `TELEGRAM_BOT_TOKEN` (the token) and `TELEGRAM_BOT_USERNAME` (the username, without @). `TELEGRAM_WEBHOOK_SECRET` is already there if you ran **Create Worker secrets**; if not, add one (32+ random letters and numbers).
+2. Cloudflare → `zorion-app` → Settings → Variables and Secrets → add, as **Secret**: `TELEGRAM_BOT_TOKEN` (the token) and `TELEGRAM_BOT_USERNAME` (the username, without @). `TELEGRAM_WEBHOOK_SECRET` too, if you didn't add it in section 3 (40+ random letters and numbers).
 3. Wait for the next hourly job: the app points the bot at `https://zorionapp.midnightpoetry.studio/api/webhooks/telegram` by itself, and does it again if the address or secret changes. To connect at once from a computer: `TELEGRAM_BOT_TOKEN=… TELEGRAM_WEBHOOK_SECRET=… APP_ORIGIN=https://zorionapp.midnightpoetry.studio npm run telegram:setup`.
 
 Until `TELEGRAM_BOT_USERNAME` is set, the Telegram choice doesn't appear anywhere. A bot can only message people who pressed Start in a chat with it, so people connect through a one-time link that opens the bot. Sending `/stop` to the bot, or blocking it, disconnects them. Sign-in codes are never sent on Telegram.
 
-## Deploying database changes from a phone
+## How each update goes live
 
-`.github/workflows/database.yml` runs the migrations on GitHub's servers, so no computer is needed after the first setup.
+Merge a pull request into `main` (the GitHub app works). That's all: Cloudflare picks up the new commit and builds both Workers.
 
-**One-time setup:** the repository secret `DATABASE_URL` (section 1).
+1. `npm ci` installs exactly what `package-lock.json` lists.
+2. Type checks and tests. A failure stops the build here, before the database is touched.
+3. `npm run migrate -- --build` applies migrations the database hasn't had yet, each in its own transaction. It runs only for `main`.
+4. The Worker is built and deployed. The new code goes live only after its tables exist.
 
-**Each time:** GitHub app → the repository → **Actions** → **Deploy database** → **Run workflow**. Tick *dry run* to only list the migrations that would run. It refuses to deploy a commit whose CI run did not pass.
+Watch a build in Cloudflare → the Worker → **Deployments** (or the check Cloudflare adds to the commit on GitHub). A failed build changes nothing that's live; fix it and merge again, or press **Retry build**.
 
-**Optional, fully automatic:** add the variable `AUTO_DEPLOY_DATABASE` = `true` (Settings → Secrets and variables → Actions → **Variables** tab) and every push to `main` migrates by itself once CI passes. Leave it off if you prefer to choose when the live database changes.
+**Protect `main` (recommended).** GitHub → Settings → Rules → **New branch ruleset** for `main`: require a pull request, and require the status checks **check** and **Browser tests**. Cloudflare builds whatever lands on `main`, so this makes sure only fully tested code lands there, and that nobody can push to it directly.
 
-The Cloudflare Workers are connected to Git, so they redeploy on push by themselves. When a release adds a migration, the Workers can be live a few minutes before it runs; migrations only add things, so the new code waits for its tables at worst. Run **Deploy database** straight after merging if you don't use the automatic option.
+**Rolling back.** Cloudflare → the Worker → Deployments → pick the earlier version → **Rollback**. Migrations stay in place; they only ever add tables and columns, so earlier code keeps working with them.
+
+**Migrations only add.** Never rename or drop a column in the same release that stops using it: stop using it in one release, remove it in a later one. The old code is still serving while the migration runs.
+
+**Checking by hand** (on a computer): `DATABASE_URL=… npm run migrate -- --dry-run` lists what would run, without changing anything.
 
 ## Extra protection (recommended)
 
@@ -190,9 +202,9 @@ See the README. `npm run demo` serves both sites with an in-memory database and 
 
 ## Release safety
 
+- Cloudflare pulls from GitHub; GitHub pushes nothing. No Cloudflare or Neon key is stored on GitHub, and the GitHub Actions have read-only access to the code.
+- `DATABASE_URL` reaches the build as a Cloudflare build secret, so only code on `main` can change the live database. Protect `main` as above.
+- Migrations run only after the type checks and tests pass, and only on `main`. Two builds at once can't apply the same migration twice.
 - GitHub Actions are pinned to exact commits (with the version in a comment). To update one, look up the new release's commit and change both.
 - CI installs only the versions in `package-lock.json` (`npm ci`) and fails if it is out of date, then checks for known vulnerabilities in what ships.
-- **Deploy database** runs only after CI passed on that commit, and automatic runs only for pushes to this repository's `main`, never a pull request or a fork.
-- **Create Worker secrets** never prints a value and refuses to replace `PEPPER` or `TOTP_KEY` unless asked to.
 - Workers serve only their custom domains (`workers_dev` and `preview_urls` are off).
-- Add a required reviewer to the `production` environment (Settings → Environments) if you want each database deploy or secrets run to need approval.
