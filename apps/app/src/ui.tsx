@@ -230,10 +230,10 @@ export async function copyText(text: string): Promise<boolean> {
 /** Asks the browser for the device position, once. */
 export function locate(): Promise<{ lat: number; lng: number }> {
   return new Promise((resolve, reject) => {
-    if (!navigator.geolocation) return reject(new Error('This browser cannot share a location.'));
+    if (!navigator.geolocation) return reject(new Error("This browser can't share location."));
     navigator.geolocation.getCurrentPosition(
       (p) => resolve({ lat: p.coords.latitude, lng: p.coords.longitude }),
-      (e) => reject(new Error(e.code === e.PERMISSION_DENIED ? 'Location is switched off for this site. Allow it in your browser settings and try again.' : 'Could not find where you are. Try again.')),
+      (e) => reject(new Error(e.code === e.PERMISSION_DENIED ? 'Location is blocked. Allow it in your browser settings.' : "Couldn't get your location. Try again.")),
       { enableHighAccuracy: false, timeout: 15000, maximumAge: 60000 },
     );
   });

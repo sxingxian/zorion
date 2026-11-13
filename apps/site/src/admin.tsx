@@ -32,7 +32,7 @@ export default function AdminApp({ path, go }: { path: string; go: (to: string) 
   if (!admin) return <SignIn onDone={refresh} />;
   const propose = async (action: string, payload: unknown) => {
     const r = await call('POST', '/propose', { action, payload });
-    return r.status === 'done' ? 'Done.' : 'Sent for approval. A second admin has to approve it before it goes live.';
+    return r.status === 'done' ? 'Done.' : 'Sent to another admin for approval.';
   };
   const page = path === '/admin/categories' ? <Categories admin={admin} /> : path === '/admin/ads' ? <Ads propose={propose} /> : path === '/admin/users' ? <Users propose={propose} /> : path === '/admin/access' ? <Access admin={admin} /> : <Overview />;
   return (
@@ -71,7 +71,7 @@ function SignIn({ onDone }: { onDone: () => void }) {
     <div className="adm signin">
       <form onSubmit={submit}>
         <h1 className="display">Zorion admin</h1>
-        <p className="sub">{step === 'password' ? 'Password first, then your authenticator. There is no email sign-in here.' : 'Enter the 6-digit code from your authenticator app.'}</p>
+        <p className="sub">{step === 'password' ? 'Password, then authenticator.' : 'Code from your authenticator app.'}</p>
         {step === 'password' ? (
           <>
             <label>Email<input className="input" type="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} required /></label>
@@ -80,13 +80,12 @@ function SignIn({ onDone }: { onDone: () => void }) {
         ) : <label>Authenticator code<input className="input" inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))} required /></label>}
         {error && <div className="err" role="alert">{error}</div>}
         <button className="btn solid" disabled={busy}>{step === 'password' ? 'Continue' : 'Verify and sign in'}</button>
-        <p className="sub">Five wrong tries pauses sign-in for 30 minutes. Every sign-in is logged.</p>
       </form>
     </div>
   );
 }
 
-const Head = ({ title, sub, children }: { title: string; sub: string; children?: ReactNode }) => <header style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: 16 }}><div><h1>{title}</h1><div className="sub">{sub}</div></div><div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>{children}</div></header>;
+const Head = ({ title, sub, children }: { title: string; sub: string; children?: ReactNode }) => <header style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: 16 }}><div><h1>{title}</h1>{sub && <div className="sub">{sub}</div>}</div><div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>{children}</div></header>;
 
 function Overview() {
   const [d, , error] = useLoad<R>('/overview');
@@ -95,12 +94,12 @@ function Overview() {
   const live = Object.entries(meetups).filter(([k]) => k !== 'ended').reduce((s, [, n]) => s + n, 0);
   return (
     <>
-      <Head title="Overview" sub="Live numbers from the database" />
+      <Head title="Overview" sub="" />
       <div className="cards" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(min(220px, 100%), 1fr))' }}>
         <section><div className="sub">Hosts</div><div className="stat">{d.users.hosts}</div><div className="sub">{d.users.pro} on Pro · {d.users.suspended} suspended</div></section>
         <section><div className="sub">Meetups in progress</div><div className="stat">{live}</div><div className="sub">{meetups.confirmed ?? 0} confirmed · {meetups.ended ?? 0} ended</div></section>
-        <section><div className="sub">Waiting for approval</div><div className="stat">{d.pendingApprovals}</div><div className="sub">Sensitive actions need a second admin</div></section>
-        <section><div className="sub">Places come from</div><div className="stat" style={{ fontSize: 32 }}>{d.placesProvider === 'google' ? 'Google Places' : 'OpenStreetMap'}</div><div className="sub">Switch it under Categories &amp; rules</div></section>
+        <section><div className="sub">Waiting for approval</div><div className="stat">{d.pendingApprovals}</div><div className="sub">Need a second admin</div></section>
+        <section><div className="sub">Places come from</div><div className="stat" style={{ fontSize: 32 }}>{d.placesProvider === 'google' ? 'Google Places' : 'OpenStreetMap'}</div></section>
       </div>
       <section><h2>By stage</h2>{['draft', 'date_vote', 'voting', 'places', 'place_vote', 'confirmed', 'ended'].map((k) => <div className="line" key={k}><span>{k.replace('_', ' ')}</span><strong>{meetups[k] ?? 0}</strong></div>)}</section>
     </>
@@ -118,22 +117,22 @@ function Categories({ admin }: { admin: AdminUser }) {
   const saveCat = (c: R, change: R) => call('POST', '/categories', { key: c.key, name: c.name, icon: c.icon, active: c.active, position: c.position, osm: c.osm, google: c.google, ...change }).then(reload).catch((e) => setNote(e.message));
   return (
     <>
-      <Head title="Categories & rules" sub="What hosts can put on the ballot, and how places are found" />
+      <Head title="Categories & rules" sub="" />
       {note && <div className="info" role="status">{note}</div>}
-      {!canEdit && <div className="info">Support admins can read this page. Only a super admin can change it.</div>}
+      {!canEdit && <div className="info">Only super admins can change this page.</div>}
       <div className="cards">
         <section>
           <h2>Built-in categories</h2>
           <table><thead><tr><th>Category</th><th>Places search</th><th>Active</th></tr></thead>
             <tbody>{(d.categories as R[]).map((c) => <tr key={c.key}><td><strong>{c.name}</strong></td><td className="sub">{c.google?.type ?? c.google?.text ?? '—'}</td><td><Toggle on={c.active} label={`${c.name} active`} disabled={!canEdit} onChange={(active) => saveCat(c, { active })} /></td></tr>)}</tbody></table>
-          <div className="info">Fallback when a search finds nothing: the host picks the next category on the ballot.</div>
+          <div className="info">If nothing is found, the host picks another option.</div>
         </section>
         <section>
           <h2>Rules</h2>
           <div className="line"><span>Places come from</span><select className="input" style={{ width: 200 }} aria-label="Places come from" value={s.places_provider} disabled={!canEdit} onChange={(e) => save({ places_provider: e.target.value })}><option value="osm">OpenStreetMap (free)</option><option value="google">Google Places (needs a key)</option></select></div>
           <div className="line"><span>Trip times come from</span><select className="input" style={{ width: 200 }} aria-label="Trip times come from" value={s.routing_provider ?? 'estimate'} disabled={!canEdit} onChange={(e) => save({ routing_provider: e.target.value })}><option value="estimate">Zorion's estimate</option><option value="osrm">OpenStreetMap routing (free, no key)</option><option value="ors">openrouteservice (free key)</option><option value="google">Google routes (paid key)</option></select></div>
-          <div className="info">The estimate keeps every starting point inside Zorion. The three routed choices give real times, and for that each starting point is sent to the routing service with no name attached. The two free ones cover walking and cycling; only Google covers transit. A choice whose key or server is not set up falls back to the estimate.</div>
-          <div className="line"><span>Let Pro hosts add their own categories</span><Toggle on={s.own_categories !== false} label="Own categories" disabled={!canEdit} onChange={(v) => save({ own_categories: v })} /></div>
+          <div className="info">Routed times send starting points, with no names, to that service. The free choices cover walking and cycling; only Google covers transit. A choice without its key falls back to the estimate.</div>
+          <div className="line"><span>Pro hosts can add their own options</span><Toggle on={s.own_categories !== false} label="Own categories" disabled={!canEdit} onChange={(v) => save({ own_categories: v })} /></div>
           <div className="line"><span>Group size, Free</span><input className="input" style={{ width: 90 }} type="number" min={2} max={100} defaultValue={s.group_size?.free ?? 8} disabled={!canEdit} onBlur={(e) => save({ group_size: { free: Number(e.target.value), pro: s.group_size?.pro ?? 30 } })} /></div>
           <div className="line"><span>Group size, Pro</span><input className="input" style={{ width: 90 }} type="number" min={2} max={200} defaultValue={s.group_size?.pro ?? 30} disabled={!canEdit} onBlur={(e) => save({ group_size: { free: s.group_size?.free ?? 8, pro: Number(e.target.value) } })} /></div>
           <label>Blocked words in names, one per line<textarea className="input" style={{ minHeight: 110, padding: 12 }} disabled={!canEdit} value={words ?? (s.blocked_words ?? []).join('\n')} onChange={(e) => setWords(e.target.value)} /></label>
@@ -155,7 +154,7 @@ function Ads({ propose }: { propose: (action: string, payload: unknown) => Promi
   const today = new Date().toISOString().slice(0, 10);
   return (
     <>
-      <Head title="Sponsored & ads" sub="Free-tier ad slots in the app and on the landing page" />
+      <Head title="Sponsored & ads" sub="" />
       {note && <div className="info" role="status">{note}</div>}
       <div className="cards">
         <section>
@@ -176,14 +175,14 @@ function Ads({ propose }: { propose: (action: string, payload: unknown) => Promi
         </section>
         <section>
           <h2>Who sees ads</h2>
-          <div className="info">Pro hosts never see ads. Guests see ads in both themes, unless they sign in and are Pro themselves. A sponsored place is always labelled and never changes the fair-middle ranking. AdSense runs on the landing page only; in-app slots are first-party, so no ad network sees guest locations.</div>
+          <div className="info">Pro hosts see no ads. Guests see ads unless they're signed in as Pro. Sponsored places are labelled and never change the ranking. AdSense runs on the landing page only.</div>
         </section>
         <section>
           <h2>Google AdSense</h2>
           <label>Publisher ID<input className="input" placeholder="ca-pub-…" value={pub ?? d.adsense.publisherId ?? ''} onChange={(e) => setPub(e.target.value)} /></label>
           <div className="line"><span>Ask for consent before loading ads</span><Toggle on={d.adsense.consent !== false} label="Consent before ads" onChange={(consent) => act('ads.adsense', { publisherId: pub ?? d.adsense.publisherId ?? '', consent })} /></div>
           <button className="btn" disabled={pub === null} onClick={() => act('ads.adsense', { publisherId: pub ?? '', consent: d.adsense.consent !== false })}>Save publisher ID</button>
-          <div className="info">Changes on this page are written to the audit log and need a second admin to go live.</div>
+          <div className="info">Changes here need a second admin.</div>
         </section>
       </div>
     </>
@@ -204,7 +203,7 @@ function Users({ propose }: { propose: (action: string, payload: unknown) => Pro
   const act = (action: string, payload: unknown) => propose(action, payload).then((m) => { setNote(m); setSel(null); reload(); }).catch((e) => setNote(e.message));
   return (
     <>
-      <Head title="Users & plans" sub="Hosts only. Guests have no account and are never listed here."><input className="input" style={{ width: 260 }} placeholder="Search by email" aria-label="Search hosts" value={typed} maxLength={80} onChange={(e) => setTyped(e.target.value)} /></Head>
+      <Head title="Users & plans" sub="Hosts only"><input className="input" style={{ width: 260 }} placeholder="Search by email" aria-label="Search hosts" value={typed} maxLength={80} onChange={(e) => setTyped(e.target.value)} /></Head>
       {note && <div className="info" role="status">{note}</div>}
       {error && <div className="err">{error}</div>}
       <div className="cards">
@@ -215,7 +214,7 @@ function Users({ propose }: { propose: (action: string, payload: unknown) => Pro
           <div className="sub">Emails are masked for support admins.</div>
         </section>
         <section>
-          {!sel ? <div className="info">Select a host to see their plan and the actions you can take.</div> : (
+          {!sel ? <div className="info">Select a host.</div> : (
             <>
               <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center' }}><h2 style={{ overflowWrap: 'anywhere' }}>{sel.email}</h2><Pill kind={sel.plan === 'pro' ? 'pro' : ''}>{sel.plan === 'pro' ? 'Pro' : 'Free'}</Pill></div>
               <div><div className="line"><span className="sub">Plan</span><strong>{sel.plan === 'pro' ? 'Pro, billed by Stripe' : 'Free'}</strong></div><div className="line"><span className="sub">Meetups hosted</span><strong>{sel.meetups}</strong></div><div className="line"><span className="sub">Last sign-in</span><strong>{date(sel.last_sign_in_at)}</strong></div><div className="line"><span className="sub">Two-step</span><strong>{sel.totp_enabled ? 'On' : 'Off'}</strong></div></div>
@@ -225,8 +224,8 @@ function Users({ propose }: { propose: (action: string, payload: unknown) => Pro
                   ? <><button className="btn solid" onClick={() => act('user.delete', { userId: sel.id })}>Yes, delete everything</button><button className="btn" onClick={() => setSure(false)}>Keep</button></>
                   : <button className="btn" onClick={() => setSure(true)}>Delete data</button>}
               </div>
-              {sure && <div className="err" role="alert">This removes the host and all their meetups. It cannot be undone.</div>}
-              <div className="info">Payments and cards live in Stripe and never reach Zorion. Suspending or deleting needs a second admin, and every action here is written to the audit log.</div>
+              {sure && <div className="err" role="alert">This deletes the host and all their meetups. It can't be undone.</div>}
+              <div className="info">Card details stay in Stripe. Suspending or deleting needs a second admin.</div>
             </>
           )}
         </section>
@@ -242,7 +241,7 @@ function Access({ admin }: { admin: AdminUser }) {
   const decide = (id: string, approve: boolean) => call('POST', `/approvals/${id}`, { approve }).then(() => { reloadAp(); reload(); }).catch((e) => setNote(e.message));
   return (
     <>
-      <Head title="Access & audit" sub="Who can sign in here, what is waiting, and everything that was done" />
+      <Head title="Access & audit" sub="" />
       {(note || error) && <div className="err">{note ?? error}</div>}
       <div className="cards">
         <section>
@@ -252,7 +251,7 @@ function Access({ admin }: { admin: AdminUser }) {
           )) : <div className="info">Nothing is waiting.</div>}
           <h2>Admins</h2>
           <table><thead><tr><th>Admin</th><th>Role</th><th>Two-step</th></tr></thead><tbody>{(d?.admins as R[] | undefined)?.map((a) => <tr key={a.id}><td><strong>{a.email}</strong>{!a.active && <> <Pill kind="dark">Off</Pill></>}</td><td>{a.role === 'super' ? 'Super admin' : 'Support'}</td><td><Pill>{a.totp_enabled ? 'On' : 'Off'}</Pill></td></tr>)}</tbody></table>
-          <div className="info">Admins are created from the command line, never from this page: <code>npm run create-admin</code> in <code>apps/site</code>.</div>
+          <div className="info">Add admins with <code>npm run create-admin</code>.</div>
         </section>
         <section>
           <h2>Audit log</h2>

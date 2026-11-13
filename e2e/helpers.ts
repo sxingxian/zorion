@@ -4,6 +4,11 @@ import { type Browser, type Page, expect } from '@playwright/test';
 export const APP = 'http://localhost:5173';
 export const SITE = 'http://localhost:5174';
 
+/** Clicks the button whose whole label is exactly this text. */
+export async function press(page: Page, name: string): Promise<void> {
+  await page.getByRole('button', { name, exact: true }).first().click();
+}
+
 /** Clicks the first button or link that contains the text. */
 export async function tap(page: Page, text: string | RegExp): Promise<void> {
   await page.locator('button, a, [role=button]').filter({ hasText: text }).first().click();
@@ -25,10 +30,10 @@ export async function emailedCode(page: Page, email: string): Promise<string> {
 export async function signIn(page: Page, email: string): Promise<void> {
   await page.goto(APP);
   await page.locator('input[type=email]').fill(email);
-  await tap(page, 'Send me a 6-digit code');
-  await expect(page.getByText('Verify and sign in')).toBeVisible();
+  await tap(page, 'Email me a code');
+  await expect(page.getByRole('button', { name: 'Sign in', exact: true })).toBeVisible();
   await typeCode(page, await emailedCode(page, email));
-  await tap(page, 'Verify and sign in');
+  await press(page, 'Sign in');
   await expect(page.getByText('Your meetups')).toBeVisible();
 }
 
@@ -36,16 +41,16 @@ export async function signIn(page: Page, email: string): Promise<void> {
 export async function hostMeetup(page: Page, invitees: string[]): Promise<string> {
   await tap(page, 'New meetup');
   await page.getByPlaceholder('Midnight poetry party').fill('Midnight poetry party');
-  await tap(page, 'Next: add your people');
+  await press(page, 'Next');
   for (const name of invitees) {
     await page.getByPlaceholder('Add a name').fill(name);
-    await tap(page, 'Add to the list');
+    await press(page, 'Add');
   }
-  await tap(page, 'Next: cast your own vote');
+  await press(page, 'Next');
   await tap(page, 'Pizza');
   await tap(page, 'Ramen');
   await tap(page, 'Vote, then share the link');
-  await tap(page, 'Share with your crew');
+  await press(page, 'Share');
   await expect(page.getByText('Copy link')).toBeVisible();
   const text = await page.locator('body').innerText();
   return `http://${text.match(/localhost:5173\/j\/[A-Za-z0-9_-]+/)![0]}`;
@@ -60,7 +65,7 @@ export async function joinAs(browser: Browser, link: string, name: string, at = 
   await tap(page, `I am ${name}`);
   await expect(page.getByText('Keep this code')).toBeVisible();
   const code = (await page.locator('input').evaluateAll((els) => els.map((e) => (e as HTMLInputElement).value))).join('');
-  await tap(page, 'Got it, continue');
+  await press(page, 'Continue');
   return { page, code };
 }
 

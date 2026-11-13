@@ -9,7 +9,7 @@ export function TelegramLink({ url, onCancel }: { url: string; onCancel: () => v
   return (
     <div className="card stack" style={{ gap: 10 }}>
       <strong style={{ fontWeight: 800 }}>Open Telegram and press Start</strong>
-      <p className="small">That connects this chat. The link works once, for 30 minutes. Then come back here.</p>
+      <p className="small">The link works once, for 30 minutes.</p>
       <a className="btn" href={url} target="_blank" rel="noopener noreferrer">Open Telegram</a>
       <button type="button" className="btn text" onClick={onCancel}>Cancel</button>
     </div>
@@ -38,8 +38,8 @@ export function Updates({ token, m, setM }: { token: string; m: M; setM: (m: M) 
   useEffect(() => { if (onTelegram && step === 'telegram') { setStep('closed'); setLink(null); } }, [onTelegram, step]);
 
   const lines = [
-    mine?.confirmed && <div key="e" className="row between" style={{ gap: 10 }}><span className="small" style={{ fontSize: 14 }}>Email updates go to <strong>{mine.address}</strong></span><button type="button" className="btn text" style={{ width: 'auto' }} disabled={busy} onClick={() => post('/email/stop')}>Stop</button></div>,
-    onTelegram && <div key="t" className="row between" style={{ gap: 10 }}><span className="small" style={{ fontSize: 14 }}>Updates {mine?.confirmed ? 'also come' : 'come'} on <strong>Telegram</strong></span><button type="button" className="btn text" style={{ width: 'auto' }} disabled={busy} onClick={() => post('/telegram/stop')}>Stop</button></div>,
+    mine?.confirmed && <div key="e" className="row between" style={{ gap: 10 }}><span className="small" style={{ fontSize: 14 }}>Email: <strong>{mine.address}</strong></span><button type="button" className="btn text" style={{ width: 'auto' }} disabled={busy} onClick={() => post('/email/stop')}>Stop</button></div>,
+    onTelegram && <div key="t" className="row between" style={{ gap: 10 }}><span className="small" style={{ fontSize: 14 }}>Telegram: <strong>on</strong></span><button type="button" className="btn text" style={{ width: 'auto' }} disabled={busy} onClick={() => post('/telegram/stop')}>Stop</button></div>,
   ].filter(Boolean);
   const pendingEmail = mine && !mine.confirmed;
   const canAddEmail = !mine;
@@ -53,8 +53,8 @@ export function Updates({ token, m, setM }: { token: string; m: M; setM: (m: M) 
       <form className="card stack" style={{ gap: 10 }} onSubmit={(e) => { e.preventDefault(); if (valid && !busy) run(async () => { setM((await api('POST', `/g/${token}/email`, { email: email.trim() })).meetup); setStep('closed'); }); }}>
         <Field label="Your email" type="email" inputMode="email" autoComplete="email" placeholder="you@example.com" value={email} onChange={setEmail} />
         <Oops>{error}</Oops>
-        <Btn kind="second" type="submit" busy={busy} disabled={!valid}>Email me updates</Btn>
-        <p className="small">Only for this meetup. The host and the crew never see your address, and it is erased when the meetup ends. Every email has a link to stop them.</p>
+        <Btn kind="second" type="submit" busy={busy} disabled={!valid}>Send updates</Btn>
+        <p className="small">Only for this meetup. Nobody else sees it.</p>
         <button type="button" className="btn text" onClick={() => go('closed')}>Cancel</button>
       </form>
     );
@@ -64,7 +64,6 @@ export function Updates({ token, m, setM }: { token: string; m: M; setM: (m: M) 
     return (
       <div className="card stack" style={{ gap: 10 }}>
         <strong style={{ fontWeight: 800 }}>Get updates {label}</strong>
-        <p className="small">The same short updates either way. The host and the crew never see where they go.</p>
         <div className="row" style={{ gap: 8 }}>
           {canAddEmail && <Btn kind="second" onClick={() => go('email')}>By email</Btn>}
           {canAddTelegram && <Btn kind="second" busy={busy} onClick={telegram}>On Telegram</Btn>}
@@ -80,13 +79,13 @@ export function Updates({ token, m, setM }: { token: string; m: M; setM: (m: M) 
       {lines.length > 0 && <div className="card stack" style={{ gap: 6 }}>{lines}</div>}
       {pendingEmail && (
         <>
-          <Note ok>Check {mine.address} and open the link to confirm. Nothing else is sent until you do.</Note>
-          <button type="button" className="btn text" disabled={busy} onClick={() => post('/email/stop')}>Use another address, or cancel</button>
+          <Note ok>Check {mine.address} to confirm.</Note>
+          <button type="button" className="btn text" disabled={busy} onClick={() => post('/email/stop')}>Cancel</button>
         </>
       )}
       <Oops>{error}</Oops>
       {lines.length === 0 && !pendingEmail && (canAddEmail || canAddTelegram) && (
-        <Btn kind="text" onClick={() => (canAddEmail && canAddTelegram ? go('choose') : canAddEmail ? go('email') : telegram())}>{canAddEmail && !canAddTelegram ? `Email me ${label}` : `Get updates ${label}`}</Btn>
+        <Btn kind="text" onClick={() => (canAddEmail && canAddTelegram ? go('choose') : canAddEmail ? go('email') : telegram())}>{`Get updates ${label}`}</Btn>
       )}
       {(lines.length > 0 || pendingEmail) && canAddTelegram && <Btn kind="text" busy={busy} onClick={telegram}>Also on Telegram</Btn>}
       {lines.length > 0 && canAddEmail && <Btn kind="text" onClick={() => go('email')}>Also by email</Btn>}
@@ -107,7 +106,7 @@ export function useEmailLink(token: string, refresh: () => void): [notice: strin
     if (!confirm && !stop) return;
     window.history.replaceState(null, '', window.location.pathname); // keep the link's secret out of the address bar and history
     api('POST', `/g/${token}/email/${confirm ? 'confirm' : 'stop'}`, { t: confirm ?? stop })
-      .then((r) => setNotice(confirm ? `Email updates are on${r.name ? ` for ${r.name}` : ''}.` : 'Email updates are off. Your address is forgotten.'))
+      .then((r) => setNotice(confirm ? 'Email updates are on.' : 'Email updates are off.'))
       .catch((e) => setNotice(e instanceof Error ? e.message : 'That link did not work.'))
       .finally(refresh);
   }, [token, refresh]);

@@ -81,9 +81,9 @@ telegramWebhook.post('/', async (c) => {
     if (command === '/start' && arg && /^[A-Za-z0-9_-]{16,64}$/.test(arg)) await connect(deps, chatId, arg);
     else if (command === '/stop') {
       await forgetChat(deps.db, chatId);
-      await reply(deps, chatId, 'Stopped. Zorion will not message you here again.\n\nTo get updates again, choose Telegram on a meetup page or under Account.');
+      await reply(deps, chatId, "Stopped. You won't get more messages here.");
     } else {
-      await reply(deps, chatId, 'This is Zorion. It messages you about meetups you connected.\n\nTo connect, open a meetup link and choose "On Telegram", or, if you host, go to Account. Send /stop to stop all messages.');
+      await reply(deps, chatId, 'Zorion sends meetup updates here. Connect from a meetup page, or under Account if you host. Send /stop to stop.');
     }
   } catch (err) {
     console.error('telegram update not handled', err instanceof Error ? err.message : err);
@@ -94,14 +94,14 @@ telegramWebhook.post('/', async (c) => {
 async function connect(deps: Deps, chatId: string, token: string): Promise<void> {
   const link = await one(deps.db, 'delete from telegram_links where token_hash = $1 returning user_id, participant_id, expires_at > now() as live', [await sha256(token)]);
   if (!link?.live) {
-    await reply(deps, chatId, 'That link has expired or was already used. Choose Telegram again on the meetup page, or under Account if you host.');
+    await reply(deps, chatId, 'This link has expired or was already used. Get a new one from the meetup page.');
     return;
   }
   if (link.user_id) {
     await deps.db.query('update users set telegram_chat_id = $2 where id = $1', [link.user_id, chatId]);
-    await reply(deps, chatId, 'Connected. Zorion will message you here about the meetups you host: when votes are complete, and when a guest changes their reply.\n\nSend /stop to stop, or switch it off under Account.');
+    await reply(deps, chatId, "Connected. You'll get updates about meetups you host here. Send /stop to stop.");
     return;
   }
   const p = (await one(deps.db, `update participants p set telegram_chat_id = $2 from meetups m where p.id = $1 and m.id = p.meetup_id returning p.name, m.name as meetup`, [link.participant_id, chatId])) as Row | null;
-  if (p) await reply(deps, chatId, `Connected. Updates about "${p.meetup}" will come here, for ${p.name}: when the date is set, when the place vote opens, when it is on, and if the date moves.\n\nSend /stop to stop.`);
+  if (p) await reply(deps, chatId, `Connected. You'll get updates about "${p.meetup}" here. Send /stop to stop.`);
 }

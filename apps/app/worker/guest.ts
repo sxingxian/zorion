@@ -23,7 +23,7 @@ const codeHash = (c: C, L: Loaded, code: string) => hmac(c.get('deps').env.PEPPE
 async function open(c: C): Promise<Loaded> {
   const token = c.req.param('token') ?? '';
   const L = /^[A-Za-z0-9_-]{16,40}$/.test(token) ? await load(c.get('deps').db, { token }) : null;
-  if (!L || L.m.status === 'draft') throw new Fail(404, 'not_found', 'This link does not lead anywhere. Ask the host for a new one.');
+  if (!L || L.m.status === 'draft') throw new Fail(404, 'not_found', "This link doesn't work. Ask the host for a new one.");
   if (L.m.status === 'ended') throw new Fail(410, 'ended', 'This meetup has ended.');
   return L;
 }
@@ -40,7 +40,7 @@ async function whoAmI(c: C, L: Loaded): Promise<Row | null> {
 }
 async function me(c: C, L: Loaded): Promise<Row> {
   const p = await whoAmI(c, L);
-  if (!p) throw new Fail(401, 'who', 'Tell us who you are first.');
+  if (!p) throw new Fail(401, 'who', 'Pick your name first.');
   return p;
 }
 
@@ -53,7 +53,7 @@ async function rememberDevice(c: C, L: Loaded, participantId: string): Promise<v
 /** A choice that already exists can only be changed with a fresh code check. */
 /** Once the plan is confirmed, a guest can change only their reply. Date, place and starting point are fixed. */
 function replyOnly(L: Loaded): void {
-  if (L.m.status === 'confirmed') throw new Fail(409, 'confirmed', 'The plan is confirmed, so only your reply can change now.');
+  if (L.m.status === 'confirmed') throw new Fail(409, 'confirmed', 'The plan is set. Only your reply can change.');
 }
 
 function needAmend(_c: C, p: Row, alreadySet: boolean): void {
@@ -128,19 +128,19 @@ guest.post('/:token/join', async (c) => {
   const L = await open(c);
   const input = await body(c, schemas.guestJoin);
   const { db } = c.get('deps');
-  if (await whoAmI(c, L)) throw new Fail(409, 'already', 'You have already joined on this device.');
+  if (await whoAmI(c, L)) throw new Fail(409, 'already', "You've already joined on this device.");
   let id: string;
   const late = L.m.date_mode === 'vote' && L.m.status !== 'date_vote';
   if ('participantId' in input) {
     const p = L.people.find((x) => x.id === input.participantId && !x.is_host);
     if (!p) throw new Fail(404, 'not_found', 'That name is not on the list.');
-    if (p.claimed) throw new Fail(409, 'taken', 'Someone is already using that name. Use your code if it is you.');
+    if (p.claimed) throw new Fail(409, 'taken', "That name's taken. If it's you, use your code.");
     id = p.id;
   } else {
-    if (L.m.status === 'confirmed') throw new Fail(409, 'closed', 'This meetup is already confirmed. Ask the host to add you.');
+    if (L.m.status === 'confirmed') throw new Fail(409, 'closed', 'This meetup is confirmed. Ask the host to add you.');
     const n = cleanName(input.name, LIMITS.inviteeName);
     if (!n || isBlockedName(n, await setting<string[]>(db, 'blocked_words', []))) throw new Fail(422, 'invalid', 'Enter another name.');
-    if (L.people.some((p) => p.name.toLowerCase() === n.toLowerCase())) throw new Fail(409, 'taken', 'That name is on the list already. Tap it, or pick another.');
+    if (L.people.some((p) => p.name.toLowerCase() === n.toLowerCase())) throw new Fail(409, 'taken', 'That name is already listed. Tap it, or pick another.');
     const hostPlan = (await db.query('select plan from users where id = $1', [L.m.host_id]))[0]?.plan ?? 'free';
     const size = await setting<{ free: number; pro: number }>(db, 'group_size', { free: 8, pro: 30 });
     if (L.people.length + 1 > size[hostPlan as 'free' | 'pro']) throw new Fail(409, 'full', 'This meetup is full.');
@@ -177,7 +177,7 @@ async function checkCode(c: C, L: Loaded, raw: string): Promise<Row> {
   if (!p) {
     const locked = await strike(db, key, LIMITS.guestCodeTries, LIMITS.guestCodeLockMinutes, LIMITS.guestCodeLockMinutes);
     await strike(db, allKey, LIMITS.guestCodeTriesPerMeetup, LIMITS.guestCodeLockMinutes, LIMITS.guestCodeLockMinutes);
-    throw new Fail(locked ? 429 : 401, locked ? 'locked' : 'wrong', locked ? 'Three wrong tries. This link is paused on your device for 10 minutes.' : 'That code did not match.');
+    throw new Fail(locked ? 429 : 401, locked ? 'locked' : 'wrong', locked ? 'Too many wrong tries. Try again in 10 minutes.' : 'Wrong code.');
   }
   await clearStrikes(db, key);
   return p;
@@ -202,7 +202,7 @@ guest.post('/:token/dates', async (c) => {
   if (L.m.status !== 'date_vote') throw new Fail(409, 'closed', 'The date is already set.');
   needAmend(c, p, p.dates.length > 0 || p.no_date_works);
   const ids = [...new Set(input.ids)].filter((id) => L.dates.some((d) => d.id === id));
-  if (!input.none && ids.length === 0) throw new Fail(422, 'invalid', 'Tick at least one date, or say none of them work.');
+  if (!input.none && ids.length === 0) throw new Fail(422, 'invalid', 'Tick at least one date.');
   await c.get('deps').db.batch([
     ['delete from date_votes where participant_id = $1', [p.id]],
     ['update participants set no_date_works = $2 where id = $1', [p.id, input.none]],
@@ -271,7 +271,7 @@ guest.post('/:token/rsvp', async (c) => {
 guest.post('/:token/email', async (c) => {
   const L = await open(c);
   const p = await me(c, L);
-  if (p.is_host) throw new Fail(409, 'host', 'Hosts get their emails through their account.');
+  if (p.is_host) throw new Fail(409, 'host', 'Hosts set up email under Account.');
   const { email } = await body(c, z.object({ email: schemas.email }));
   const deps = c.get('deps');
   // Each confirmation is an email to an address we have not verified, so keep them few.
@@ -291,7 +291,7 @@ guest.post('/:token/email/confirm', async (c) => {
   const L = await open(c);
   const { t } = await body(c, z.object({ t: z.string().max(120) }));
   const p = await guestForToken(c.get('deps'), L, t);
-  if (!p) throw new Fail(404, 'not_found', 'That link has expired. Ask for email updates again from the meetup page.');
+  if (!p) throw new Fail(404, 'not_found', 'That link has expired.');
   await c.get('deps').db.query('update participants set email_confirmed = true where id = $1', [p.id]);
   return c.json({ ok: true, name: p.name });
 });
@@ -337,7 +337,7 @@ guest.post('/:token/place', async (c) => {
   replyOnly(L);
   if (L.m.status !== 'place_vote') throw new Fail(409, 'closed', 'There is no place vote right now.');
   const place = L.places.find((x) => x.id === id && x.shortlisted);
-  if (!place) throw new Fail(422, 'invalid', 'Pick one of the shortlisted places.');
+  if (!place) throw new Fail(422, 'invalid', 'Pick one of the listed places.');
   needAmend(c, p, !!p.place);
   await c.get('deps').db.batch([
     ['insert into place_votes (participant_id, place_id) values ($1, $2) on conflict (participant_id) do update set place_id = excluded.place_id', [p.id, id]],

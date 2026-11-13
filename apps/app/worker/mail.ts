@@ -82,7 +82,7 @@ export async function tellHost(deps: Deps, meetupId: string, event: GuestEvent, 
   if (event === 'dates' && L.m.status === 'date_vote' && guests.length > 0 && guests.every((p) => p.dates.length > 0 || p.no_date_works)) {
     kind = 'dates_in';
     subject = `Everyone has answered the date vote for ${L.m.name}`;
-    lines = ['All your guests have ticked the dates they can make.', `Set the date: ${manage}`];
+    lines = ['All your guests have answered.', `Set the date: ${manage}`];
   } else if (event === 'categories' && L.m.status === 'voting' && s.waiting.length === 0 && guests.some((p) => p.categories.length > 0)) {
     kind = 'votes_in';
     subject = `The food votes are in for ${L.m.name}`;
@@ -97,15 +97,15 @@ export async function tellHost(deps: Deps, meetupId: string, event: GuestEvent, 
   } else if (event === 'change' && L.m.status === 'confirmed') {
     // At most one of these an hour per meetup, however many changes arrive.
     if (!(await claim(deps, L.m.id, 'change', 60))) return;
-    await deliver(deps, to, `A guest changed their reply for ${L.m.name}`, [detail || 'A guest changed their reply after the plan was confirmed.', `See what changed: ${manage}/changes`]);
+    await deliver(deps, to, `A guest changed their reply for ${L.m.name}`, [detail || 'A guest changed their reply.', `See what changed: ${manage}/changes`]);
     return;
   }
   if (!kind || !(await claim(deps, L.m.id, kind))) return;
   await deliver(deps, to, subject, lines);
 }
 
-const footer = (deps: Deps): string => `You get these because you host on Zorion. Switch them off under Account: ${deps.env.APP_ORIGIN}/account`;
-// The Telegram footer adds ", or send /stop." to the same sentence.
+const footer = (deps: Deps): string => `Turn these off under Account: ${deps.env.APP_ORIGIN}/account`;
+// The Telegram footer adds ", or send /stop." to the same line.
 
 // ---------- to guests who asked ----------
 
@@ -123,10 +123,10 @@ export async function guestForToken(deps: Deps, L: Loaded, token: string): Promi
 export async function sendConfirmation(deps: Deps, L: Loaded, p: Row): Promise<void> {
   const link = `${deps.env.APP_ORIGIN}/j/${L.m.link_token}?confirm=${await emailToken(deps, p)}`;
   await sendEmail(deps, p.email, `Confirm email updates for ${L.m.name}`, [
-    `Someone, hopefully you, asked Zorion to email this address about the meetup "${L.m.name}".`,
-    `Confirm: ${link}`,
+    `Confirm you want updates about "${L.m.name}":`,
+    link,
     '',
-    'If that was not you, ignore this email. Nothing more will be sent.',
+    "If you didn't ask for this, ignore this email.",
   ].join('\n'));
 }
 
@@ -143,16 +143,16 @@ export async function tellGuests(deps: Deps, meetupId: string, event: HostEvent)
   const place = L.places.find((p) => p.id === L.m.chosen_place);
   const say: Record<HostEvent, [subject: string, lines: string[]]> = {
     date_set: [`${L.m.name} is on ${when}`, ['The date is set.', `Reply and see the plan: ${link}`]],
-    place_vote: [`Vote for the place: ${L.m.name}`, ['The shortlist is ready. Pick the place you would like.', `Vote: ${link}`]],
+    place_vote: [`Vote for the place: ${L.m.name}`, ['The shortlist is ready.', `Vote: ${link}`]],
     confirmed: [`It is on: ${L.m.name}`, [`${place?.name ?? 'The place is set'}${place?.address ? `, ${place.address}` : ''}`, when, `Directions and the plan: ${link}`]],
-    date_moved: [`New date for ${L.m.name}: ${when}`, ['The host moved the date. Your reply still stands.', `Change it if you need to: ${link}`]],
-    date_moved_cleared: [`New date for ${L.m.name}: ${when}`, ['The host moved the date and is asking everyone to reply again.', `Reply: ${link}`]],
+    date_moved: [`New date for ${L.m.name}: ${when}`, ['The host moved the date. Your reply still stands.', `Change your reply: ${link}`]],
+    date_moved_cleared: [`New date for ${L.m.name}: ${when}`, ['The host moved the date. Please reply again.', `Reply: ${link}`]],
   };
   const [subject, lines] = say[event];
   await Promise.allSettled(to.map(async (p) => deliver(deps, {
     email: p.email && p.email_confirmed ? p.email : null,
     telegram: p.telegram_chat_id,
-    stopEmail: p.email ? `You asked for updates about this meetup. Stop them: ${link}?stop=${await emailToken(deps, p)}` : '',
-    stopTelegram: 'You asked for updates about this meetup. Send /stop to stop them.',
+    stopEmail: p.email ? `Stop these updates: ${link}?stop=${await emailToken(deps, p)}` : '',
+    stopTelegram: 'Send /stop to stop these updates.',
   }, subject, [`Hi ${p.name},`, '', ...lines])));
 }

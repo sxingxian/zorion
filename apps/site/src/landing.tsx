@@ -30,31 +30,24 @@ const CREW: Array<[number, number, string]> = [[150, 120, 'M'], [640, 100, 'A'],
 const HERO_CREW: Array<[number, number, string]> = [[150, 120, 'M'], [330, 190, 'S'], [560, 140, 'A'], [720, 250, 'L'], [520, 480, 'P']];
 
 const SCENES = [
-  { n: '01', title: 'Put food on the ballot.', text: 'You choose up to six: pizza, ramen, tacos, or your own. Then you vote first.', art: (
+  { n: '01', title: 'Pick the food.', text: 'Up to six options. You vote first.', art: (
     <City><g>{['pizza', 'ramen', 'tacos', 'bar', 'izakaya', 'hotpot'].map((k, i) => <g key={k} transform={`translate(${150 + (i % 3) * 180} ${170 + Math.floor(i / 3) * 170})`}><rect width="140" height="120" rx="24" fill={i < 3 ? '#0b0b0d' : '#fff'} /><g transform="translate(50 36)" color={i < 3 ? '#fff' : '#0b0b0d'}><Food name={k} size={44} /></g></g>)}</g></City>
   ) },
-  { n: '02', title: 'One link. No accounts.', text: 'Your crew taps their name, shares where they are once, and votes for up to half. Nobody downloads anything.', art: (
+  { n: '02', title: 'Send one link.', text: 'Guests tap their name and vote. No app, no account.', art: (
     <City>{CREW.map(([x, y, l]) => <Pin key={l} x={x} y={y} letter={l} />)}<rect x="270" y="230" width="260" height="120" rx="28" fill="#fff" /><text x="400" y="282" textAnchor="middle" fontSize="26" fontWeight="700" fontFamily="system-ui" fill="#0b0b0d">zorionapp…/j/7K4P</text><text x="400" y="318" textAnchor="middle" fontSize="18" fill="#5a5a63" fontFamily="system-ui">No account needed to join</text></City>
   ) },
-  { n: '03', title: 'Meet in the fair middle.', text: 'Zorion finds the spot that keeps the longest walk as short as it can be, then shows the places closest to everyone.', art: (
+  { n: '03', title: 'Meet in the middle.', text: 'Zorion finds the spot that is fairest for everyone, and the places nearest it.', art: (
     <City><circle cx="400" cy="300" r="150" fill="#ffa6fc" opacity="0.35" /><path d={CREW.map(([x, y]) => `M${x} ${y} H400 V300`).join(' ')} fill="none" stroke="#0b0b0d" strokeWidth="5" strokeDasharray="12 12" strokeLinecap="round" style={{ animation: 'dash 1.4s linear infinite' }} />{CREW.map(([x, y, l]) => <Pin key={l} x={x} y={y} letter={l} />)}<circle cx="400" cy="300" r="46" fill="#fff" stroke="#0b0b0d" strokeWidth="3" /><g transform="translate(364 266) scale(0.6)" dangerouslySetInnerHTML={{ __html: ART.headChef! }} /></City>
   ) },
 ];
 
 const PLANS: Array<[string, string, string]> = [
-  ['Meetups, votes and the fair middle', 'Yes', 'Yes'],
-  ['Date vote, replies and guest codes', 'Yes', 'Yes'],
-  ['Ads and sponsored spots', 'Shown', 'None'],
-  ['Getting there', 'Walking', 'Walk, transit, cycle'],
-  ['Your own categories, with an icon', '—', 'Yes'],
-  ['Theme for you and your guests', 'Pink', 'Pink or gold'],
-  ['Group size', 'Smaller groups', 'Larger groups'],
-];
-const PROMISES: Array<[string, string]> = [
-  ['Fair.', 'The middle keeps the longest walk short, so nobody draws the short straw.'],
-  ['Private.', 'A guest’s location is used once and never shown to the crew.'],
-  ['Quick.', 'One link from start to finish. Guests never make an account.'],
-  ['Free.', 'Hosting is free. Pro removes the ads and adds the extras.'],
+  ['Meetups and voting', 'Yes', 'Yes'],
+  ['Ads', 'Yes', 'No'],
+  ['Travel times', 'Walking', 'Walk, transit, cycle'],
+  ['Your own food options', '—', 'Yes'],
+  ['Gold theme', '—', 'Yes'],
+  ['Group size', 'Small', 'Large'],
 ];
 
 interface Config { appUrl: string; adsense: { publisherId: string; consent: boolean } | null }
@@ -151,8 +144,8 @@ export function Landing() {
         <div className="wrap" style={{ width: '100%' }}>
           <div className="card">
             <h1 className="display">Good fortune, fair walk.</h1>
-            <p>Zorion plans a meetup your whole crew can walk to. Put food on the ballot, send one link, and meet in the fair middle.</p>
-            <div className="row"><a className="cta" href={app}>Host a meetup, free</a><span style={{ color: 'var(--muted)', fontWeight: 600 }}>Got a link? Just open it.</span></div>
+            <p>Pick the food, send one link, and meet somewhere fair for everyone.</p>
+            <div className="row"><a className="cta" href={app}>Host a meetup</a><span style={{ color: 'var(--muted)', fontWeight: 600 }}>Got a link? Just open it.</span></div>
           </div>
         </div>
       </section>
@@ -169,19 +162,15 @@ export function Landing() {
       <section className="night">
         <div className="wrap">
           <div className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-end' }}>
-            <div className="reveal"><h2 className="display">Go Pro.<br />Go superstar.</h2><p className="lead">Zorion puts on the star shades. Your meetups lose the ads and gain the extras.</p></div>
+            <div className="reveal"><h2 className="display">Pro</h2><p className="lead">No ads, plus a few extras.</p></div>
             <div className="bob"><Pig size={200} star label="Zorion in gold star sunglasses" /></div>
           </div>
           <table className="plans reveal">
-            <thead><tr><th scope="col">What you get</th><th scope="col">Free</th><th scope="col">Pro</th></tr></thead>
+            <thead><tr><th scope="col"><span className="sr-only">Feature</span></th><th scope="col">Free</th><th scope="col">Pro</th></tr></thead>
             <tbody>{PLANS.map(([a, b, c]) => <tr key={a}><td>{a}</td><td>{b}</td><td>{c}</td></tr>)}</tbody>
           </table>
-          <div className="row" style={{ marginTop: 32 }}><a className="cta gold" href={`${app}/pro`}>See Pro in the app</a></div>
+          <div className="row" style={{ marginTop: 32 }}><a className="cta gold" href={`${app}/pro`}>See Pro</a></div>
         </div>
-      </section>
-
-      <section className="promises">
-        <div className="wrap"><div className="grid">{PROMISES.map(([h, p]) => <div className="tile reveal" key={h}><h3>{h}</h3><p>{p}</p></div>)}</div></div>
       </section>
 
       {adsAllowed && ads && (
@@ -189,14 +178,14 @@ export function Landing() {
       )}
 
       <section className="closing">
-        <div className="wrap"><h2 className="display" style={{ fontSize: 'clamp(32px, 5vw, 56px)' }}>Your crew is waiting.</h2><div className="row" style={{ justifyContent: 'center', marginTop: 20 }}><a className="cta" href={app}>Host a meetup, free</a></div></div>
+        <div className="wrap"><h2 className="display" style={{ fontSize: 'clamp(32px, 5vw, 56px)' }}>Plan your next meetup.</h2><div className="row" style={{ justifyContent: 'center', marginTop: 20 }}><a className="cta" href={app}>Host a meetup</a></div></div>
         <div className="giant" aria-hidden="true">Zorion</div>
       </section>
-      <footer><span>© {new Date().getFullYear()} Midnight Poetry Studio</span><span>Guests never need an account. Locations are used once and deleted when the meetup ends.</span><nav aria-label="Legal"><a href="/privacy">Privacy</a><a href="/terms">Terms</a></nav></footer>
+      <footer><span>© {new Date().getFullYear()} Midnight Poetry Studio</span><nav aria-label="Legal"><a href="/privacy">Privacy</a><a href="/terms">Terms</a></nav></footer>
 
       {ads?.consent && consent === null && (
         <div className="consent" role="dialog" aria-label="Advertising choice">
-          <span>This page can show ads from Google. The app itself never does. Allow them here?</span>
+          <span>Allow Google ads on this page?</span>
           <span className="row"><button onClick={() => decide('no')}>No thanks</button><button className="yes" onClick={() => decide('yes')}>Allow</button></span>
         </div>
       )}

@@ -48,7 +48,7 @@ async function findUser(c: C, email: string) {
 
 /** After a correct first step: either a full session, or a short pending one that waits for the second step. */
 async function afterFirstStep(c: C, user: { id: string; totp_enabled: boolean; status: string }, first: 'email' | 'password' | 'totp') {
-  if (user.status !== 'active') throw new Fail(403, 'suspended', 'This account is suspended. Contact support.');
+  if (user.status !== 'active') throw new Fail(403, 'suspended', 'This account is suspended.');
   if (!user.totp_enabled) {
     await startSession(c, user.id, 'full');
     return c.json({ next: 'done' });
@@ -59,7 +59,7 @@ async function afterFirstStep(c: C, user: { id: string; totp_enabled: boolean; s
 
 const failSignIn = async (c: C, key: string): Promise<never> => {
   const locked = await strike(c.get('deps').db, key, LIMITS.emailCodeTries, 15, LIMITS.signInLockMinutes);
-  throw new Fail(locked ? 429 : 401, locked ? 'locked' : 'wrong', locked ? 'Too many wrong tries. Sign-in is paused for 15 minutes.' : 'That did not match. Check it and try again.');
+  throw new Fail(locked ? 429 : 401, locked ? 'locked' : 'wrong', locked ? 'Too many wrong tries. Try again in 15 minutes.' : "That didn't match.");
 };
 
 auth.post('/email-code', async (c) => {
@@ -143,7 +143,7 @@ auth.post('/two-step', async (c) => {
   if (!ok) {
     const locked = await strike(db, key, LIMITS.emailCodeTries, 15, LIMITS.signInLockMinutes);
     if (locked) await endSession(c);
-    throw new Fail(locked ? 429 : 401, locked ? 'locked' : 'wrong', locked ? 'Too many wrong tries. Sign-in is paused for 15 minutes.' : 'That code did not match.');
+    throw new Fail(locked ? 429 : 401, locked ? 'locked' : 'wrong', locked ? 'Too many wrong tries. Try again in 15 minutes.' : 'Wrong code.');
   }
   await clearStrikes(db, key);
   await startSession(c, user.id, 'full');
@@ -176,7 +176,7 @@ account.post('/password', async (c) => {
   const input = await body(c, z.object({ current: z.string().max(128).optional(), next: schemas.password }));
   const { db, env } = c.get('deps');
   const row = (await one(db, 'select password_hash from users where id = $1', [user.id]))!;
-  if (row.password_hash && !(await verifyPassword(input.current ?? '', row.password_hash, env.PEPPER))) throw new Fail(401, 'wrong', 'Your current password did not match.');
+  if (row.password_hash && !(await verifyPassword(input.current ?? '', row.password_hash, env.PEPPER))) throw new Fail(401, 'wrong', "Current password didn't match.");
   await db.query('update users set password_hash = $2 where id = $1', [user.id, await hashPassword(input.next, env.PEPPER)]);
   await db.query('delete from sessions where user_id = $1 and id <> $2', [user.id, c.get('sessionId')]); // sign out everywhere else
   return c.json({ ok: true });
@@ -197,7 +197,7 @@ account.post('/two-step/enable', async (c) => {
   const { db, env, now } = c.get('deps');
   const row = (await one(db, 'select totp_secret, totp_last_step from users where id = $1', [user.id]))!;
   const step = row.totp_secret ? await verifyTotp(await unseal(row.totp_secret, env.TOTP_KEY), code, now(), Number(row.totp_last_step)) : null;
-  if (step === null) throw new Fail(401, 'wrong', 'That code did not match. Check the time on your phone and try again.');
+  if (step === null) throw new Fail(401, 'wrong', "Wrong code. Check your phone's clock is right.");
   const recovery = Array.from({ length: 8 }, () => randomToken(6).replace(/[^a-z0-9]/gi, '').slice(0, 8).toLowerCase().padEnd(8, 'x'));
   const hashes = await Promise.all(recovery.map((r) => hmac(env.PEPPER, `recovery:${user.id}:${r}`)));
   await db.batch([
@@ -214,7 +214,7 @@ account.post('/two-step/disable', async (c) => {
   const { db, env, now } = c.get('deps');
   const row = (await one(db, 'select totp_secret, totp_last_step from users where id = $1', [user.id]))!;
   const step = row.totp_secret ? await verifyTotp(await unseal(row.totp_secret, env.TOTP_KEY), code, now(), Number(row.totp_last_step)) : null;
-  if (step === null) throw new Fail(401, 'wrong', 'That code did not match.');
+  if (step === null) throw new Fail(401, 'wrong', 'Wrong code.');
   await db.batch([
     ['update users set totp_enabled = false, totp_secret = null, totp_last_step = 0 where id = $1', [user.id]],
     ['delete from recovery_codes where user_id = $1', [user.id]],

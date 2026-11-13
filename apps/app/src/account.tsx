@@ -61,9 +61,9 @@ export function Account({ me, modeChoice, setMode }: { me: Me; modeChoice: ModeC
         <main className="screen" style={{ gap: 14 }}>
           {me.has_password && <Field label="Current password" type="password" autoComplete="current-password" value={current} onChange={setCurrent} />}
           <Field label="New password" type="password" autoComplete="new-password" value={next} onChange={setNext} />
-          <p className="small">At least 10 characters. Changing it signs you out everywhere else.</p>
+          <p className="small">At least 10 characters. You'll be signed out on other devices.</p>
           <Oops>{error}</Oops>
-          <Btn className="push" busy={busy} disabled={next.length < 10} onClick={async () => (await run(async () => { await api('POST', '/account/password', { current, next }); await refresh(); })) && (setToast('Password saved'), setCurrent(''), setNext(''), go('main'))}>Save password</Btn>
+          <Btn className="push" busy={busy} disabled={next.length < 10} onClick={async () => (await run(async () => { await api('POST', '/account/password', { current, next }); await refresh(); })) && (setToast('Password saved'), setCurrent(''), setNext(''), go('main'))}>Save</Btn>
         </main>
       </>
     );
@@ -74,8 +74,7 @@ export function Account({ me, modeChoice, setMode }: { me: Me; modeChoice: ModeC
         <>
           <Header title="Recovery codes" sub="Shown once" />
           <main className="screen" style={{ gap: 14 }}>
-            <Note ok>Two-step verification is on.</Note>
-            <p className="small" style={{ fontSize: 14 }}>Keep these somewhere safe. Each one signs you in once if you lose your authenticator.</p>
+            <p className="small" style={{ fontSize: 14 }}>Two-step is on. Keep these safe: each signs you in once if you lose your authenticator.</p>
             <div className="card grid2" style={{ fontFamily: 'monospace', fontSize: 16, fontWeight: 700 }}>{recovery.map((r) => <span key={r}>{r}</span>)}</div>
             <Btn className="push" onClick={() => { setRecovery(null); setSetup(null); go('main'); }}>I have saved them</Btn>
           </main>
@@ -87,12 +86,11 @@ export function Account({ me, modeChoice, setMode }: { me: Me; modeChoice: ModeC
         <>
           <Header title="Two-step verification" sub="On" onBack={() => go('main')} />
           <main className="screen" style={{ gap: 14 }}>
-            <Note ok>Signing in asks for a second, different proof.</Note>
             <h2 className="display h1">Turn it off</h2>
-            <p className="small" style={{ fontSize: 14 }}>Enter a code from your authenticator app to confirm.</p>
+            <p className="small" style={{ fontSize: 14 }}>Enter an authenticator code to confirm.</p>
             <Codes length={6} value={code} onChange={setCode} label="Authenticator code" />
             <Oops>{error}</Oops>
-            <Btn className="push" kind="second" busy={busy} disabled={code.length !== 6} onClick={async () => (await run(async () => { await api('POST', '/account/two-step/disable', { code }); await refresh(); })) && go('main')}>Turn off two-step verification</Btn>
+            <Btn className="push" kind="second" busy={busy} disabled={code.length !== 6} onClick={async () => (await run(async () => { await api('POST', '/account/two-step/disable', { code }); await refresh(); })) && go('main')}>Turn off</Btn>
           </main>
         </>
       );
@@ -101,10 +99,9 @@ export function Account({ me, modeChoice, setMode }: { me: Me; modeChoice: ModeC
       <>
         <Header title="Two-step verification" sub="Off" onBack={() => go('main')} />
         <main className="screen" style={{ gap: 14 }}>
-          <Note>Two-step verification pairs your authenticator with a second, different proof: your emailed code or your password.</Note>
           {!setup ? (
             <>
-              <p className="small" style={{ fontSize: 14 }}>You will need an authenticator app. After this, signing in always asks for two different proofs.</p>
+              <p className="small" style={{ fontSize: 14 }}>Sign-in will ask for your authenticator as well as your email code or password.</p>
               <Oops>{error}</Oops>
               <Btn className="push" busy={busy} onClick={() => run(async () => setSetup(await api('POST', '/account/two-step/setup')))}>Set up an authenticator</Btn>
             </>
@@ -112,13 +109,13 @@ export function Account({ me, modeChoice, setMode }: { me: Me; modeChoice: ModeC
             <>
               <h2 className="display h1">Add Zorion to your app</h2>
               <QrCode text={setup.uri} />
-              <p className="small center">Scan this with your authenticator app, or use the button on this phone.</p>
-              <a className="btn second" href={setup.uri}>Open my authenticator app</a>
+              <p className="small center">Scan with your authenticator app.</p>
+              <a className="btn second" href={setup.uri}>Open authenticator app</a>
               <Facts rows={[['Key', <span style={{ fontFamily: 'monospace', wordBreak: 'break-all' }}>{setup.secret}</span>]]} />
-              <p className="small">Or type the key into the app by hand. Then enter the 6-digit code it shows.</p>
+              <p className="small">Then enter the code it shows.</p>
               <Codes length={6} value={code} onChange={setCode} label="Authenticator code" />
               <Oops>{error}</Oops>
-              <Btn className="push" busy={busy} disabled={code.length !== 6} onClick={() => run(async () => { const r = await api('POST', '/account/two-step/enable', { code }); await refresh(); setRecovery(r.recovery); })}>Turn on two-step verification</Btn>
+              <Btn className="push" busy={busy} disabled={code.length !== 6} onClick={() => run(async () => { const r = await api('POST', '/account/two-step/enable', { code }); await refresh(); setRecovery(r.recovery); })}>Turn on</Btn>
             </>
           )}
         </main>
@@ -130,7 +127,7 @@ export function Account({ me, modeChoice, setMode }: { me: Me; modeChoice: ModeC
       <>
         <Header title="Delete account" sub={me.email} onBack={() => go('main')} />
         <main className="screen" style={{ gap: 14 }}>
-          <Note>This deletes your account, your meetups and every guest's votes and replies for them. It cannot be undone.</Note>
+          <Note>This deletes your account and all your meetups. It can't be undone.</Note>
           <Field label="Type your email to confirm" type="email" value={confirm} onChange={setConfirm} />
           <Oops>{error}</Oops>
           <Btn className="push" kind="second" busy={busy} disabled={confirm.trim().toLowerCase() !== me.email} onClick={async () => (await run(async () => { await api('POST', '/account/delete', { email: confirm }); await refresh(); })) && navigate('/', true)}>Delete everything</Btn>
@@ -147,20 +144,20 @@ export function Account({ me, modeChoice, setMode }: { me: Me; modeChoice: ModeC
           <Seg value={pro ? me.theme : 'pink'} onChange={(theme) => patch({ theme })} options={pro ? [{ value: 'gold', label: 'Gold' }, { value: 'pink', label: 'Pink' }] : [{ value: 'pink', label: 'Pink' }, { value: 'gold', label: 'Gold', locked: true }]} />
           <span className="label" style={{ marginTop: 4 }}>Appearance</span>
           <Seg value={modeChoice} onChange={setMode} options={[{ value: 'light', label: 'Light' }, { value: 'dark', label: 'Dark' }, { value: 'auto', label: 'Match device' }]} />
-          <p className="small">{pro ? 'Pro can use gold or pink. There are no ads in either.' : 'Light and dark work on every plan. Gold comes with Pro.'}</p>
+          <p className="small">{pro ? 'No ads in either theme.' : 'Gold comes with Pro.'}</p>
         </div>
         <div className="card row between" style={{ padding: '12px 14px' }}>
-          <div className="stack" style={{ gap: 0 }}><strong style={{ fontWeight: 800 }}>{pro ? 'Pro plan' : 'Free plan'}</strong><span className="small">{pro ? 'No ads. Your own categories and themes.' : 'Ads on. Walking routes.'}</span></div>
+          <div className="stack" style={{ gap: 0 }}><strong style={{ fontWeight: 800 }}>{pro ? 'Pro plan' : 'Free plan'}</strong><span className="small">{pro ? 'No ads' : 'With ads'}</span></div>
           {pro ? <button className="btn" style={{ width: 'auto', minHeight: 44, fontSize: 14, background: 'var(--sel)', color: 'var(--sel-text)' }} disabled={busy} onClick={() => run(async () => { location.href = (await api('POST', '/billing/portal')).url; })}>Manage</button> : <a className="btn" style={{ width: 'auto', minHeight: 44, fontSize: 14, background: 'var(--sel)', color: 'var(--sel-text)' }} href="/pro" onClick={(e) => { e.preventDefault(); navigate('/pro'); }}>Go Pro</a>}
         </div>
         <div className="row" style={{ alignItems: 'flex-end' }}><div className="grow"><Field label="Your name on meetups" value={name} max={LIMITS.inviteeName} onChange={setName} /></div><button className="btn second" style={{ width: 'auto', minHeight: 52 }} disabled={busy || !name.trim() || name.trim() === me.display_name} onClick={async () => (await patch({ displayName: name })) && setToast('Name saved')}>Save</button></div>
         <Oops>{error}</Oops>
-        <Switch on={me.notify} title="Email me about my meetups" meta="When a vote is complete, or a guest changes their reply after the plan is set." onChange={(notify) => run(async () => { await api('PATCH', '/account', { notify }); await refresh(); })} />
+        <Switch on={me.notify} title="Email updates" meta="Votes in, replies changed" onChange={(notify) => run(async () => { await api('PATCH', '/account', { notify }); await refresh(); })} />
         {me.telegram_ready && (tgLink && !me.telegram
           ? <TelegramLink url={tgLink} onCancel={() => setTgLink(null)} />
           : (
             <div className="switch" style={{ cursor: 'default' }}>
-              <span className="grow stack" style={{ gap: 0 }}><strong style={{ fontWeight: 800 }}>Telegram</strong><span className="small">{me.telegram ? 'Connected. The same news comes there too.' : 'Get the same news on Telegram.'}</span></span>
+              <span className="grow stack" style={{ gap: 0 }}><strong style={{ fontWeight: 800 }}>Telegram</strong><span className="small">{me.telegram ? 'Connected' : 'Same updates as email'}</span></span>
               {me.telegram
                 ? <button type="button" className="btn second" style={{ width: 'auto', minHeight: 44, fontSize: 14 }} disabled={busy} onClick={() => run(async () => { await api('POST', '/account/telegram/stop', {}); await refresh(); })}>Disconnect</button>
                 : <button type="button" className="btn second" style={{ width: 'auto', minHeight: 44, fontSize: 14 }} disabled={busy} onClick={() => run(async () => setTgLink((await api('POST', '/account/telegram', {})).url))}>Connect</button>}
@@ -168,7 +165,7 @@ export function Account({ me, modeChoice, setMode }: { me: Me; modeChoice: ModeC
           ))}
         <div className="card" style={{ padding: '0 14px' }}>
           <button className="person" style={{ minHeight: 48 }} onClick={() => go('password')}><span className="grow" style={{ fontWeight: 700 }}>Password</span><span className="small">{me.has_password ? 'Set' : 'Not set'}</span></button>
-          <button className="person" style={{ minHeight: 48 }} onClick={() => go('two_step')}><span className="grow" style={{ fontWeight: 700 }}>Two-step verification</span><span className="small">{me.totp_enabled ? 'Authenticator on' : 'Off'}</span></button>
+          <button className="person" style={{ minHeight: 48 }} onClick={() => go('two_step')}><span className="grow" style={{ fontWeight: 700 }}>Two-step verification</span><span className="small">{me.totp_enabled ? 'On' : 'Off'}</span></button>
           <a className="person" style={{ minHeight: 48 }} href="/api/account/export" download="zorion-data.json"><span className="grow" style={{ fontWeight: 700 }}>Your data</span><span className="small">Export</span></a>
           <button className="person" style={{ minHeight: 48 }} onClick={() => go('delete')}><span className="grow" style={{ fontWeight: 700 }}>Delete account</span></button>
           <button className="person" style={{ minHeight: 48 }} onClick={() => run(async () => { await api('POST', '/auth/sign-out'); await refresh(); navigate('/', true); })}><span className="grow" style={{ fontWeight: 700 }}>Sign out</span></button>
@@ -179,7 +176,7 @@ export function Account({ me, modeChoice, setMode }: { me: Me; modeChoice: ModeC
   );
 }
 
-const BENEFITS = ['No ads or sponsored spots', 'Larger groups', 'Transit and cycling routes', 'Your own categories, with an icon', 'Pink or gold look for you and your guests'];
+const BENEFITS = ['No ads', 'Bigger groups', 'Transit and cycling times', 'Your own food options', 'Gold theme for you and your guests'];
 
 export function Pro({ me }: { me: Me }) {
   const [period, setPeriod] = useState<'yearly' | 'monthly'>('yearly');
@@ -187,17 +184,17 @@ export function Pro({ me }: { me: Me }) {
   return (
     <main className="screen" style={{ padding: '20px 20px 26px', gap: 16 }}>
       <div className="row" style={{ justifyContent: 'flex-end' }}><a className="sq" href="/" aria-label="Close" onClick={(e) => { e.preventDefault(); navigate('/'); }}>✕</a></div>
-      <div className="stack center" style={{ alignItems: 'center', gap: 10 }}><Mascot size={128} bob label="Zorion in gold star sunglasses" /><h1 className="display h0">Go Pro. Go superstar.</h1><p className="small" style={{ fontSize: 15 }}>Zorion puts on the star shades. Your meetups lose the ads and gain the extras.</p></div>
+      <div className="stack center" style={{ alignItems: 'center', gap: 10 }}><Mascot size={128} bob label="Zorion in gold star sunglasses" /><h1 className="display h0">Zorion Pro</h1><p className="small" style={{ fontSize: 15 }}>Everything in Free, plus:</p></div>
       <ul className="stack" style={{ listStyle: 'none', margin: 0, padding: 0, gap: 10 }}>{BENEFITS.map((b, i) => <li key={b} className="row rise" style={{ animationDelay: `${0.1 + i * 0.08}s` }}><Check />{b}</li>)}</ul>
-      {me.plan === 'pro' ? <Note ok>You are on Pro.</Note> : (
+      {me.plan === 'pro' ? <Note ok>You're on Pro.</Note> : (
         <>
           <div className="grid2" role="radiogroup" aria-label="Billing period">
-            {(['yearly', 'monthly'] as const).map((p) => <button key={p} className="theme-tile" style={{ minHeight: 72 }} role="radio" aria-checked={period === p} aria-pressed={period === p} onClick={() => setPeriod(p)}><span style={{ fontSize: 13, fontWeight: 700 }}>{p === 'yearly' ? 'Yearly' : 'Monthly'}</span><span className="small">{p === 'yearly' ? 'Best value' : 'Cancel anytime'}</span></button>)}
+            {(['yearly', 'monthly'] as const).map((p) => <button key={p} className="theme-tile" style={{ minHeight: 72 }} role="radio" aria-checked={period === p} aria-pressed={period === p} onClick={() => setPeriod(p)}><span style={{ fontSize: 13, fontWeight: 700 }}>{p === 'yearly' ? 'Yearly' : 'Monthly'}</span><span className="small">{p === 'yearly' ? 'Best value' : 'Cancel any time'}</span></button>)}
           </div>
           <Oops>{error}</Oops>
           <div className="push stack" style={{ gap: 10 }}>
-            <Btn busy={busy} onClick={() => run(async () => { location.href = (await api('POST', '/billing/checkout', { period })).url; })}>Continue to secure checkout</Btn>
-            <p className="small center">The price is shown at checkout. Payment is handled by Stripe. Zorion never sees your card.</p>
+            <Btn busy={busy} onClick={() => run(async () => { location.href = (await api('POST', '/billing/checkout', { period })).url; })}>Continue to payment</Btn>
+            <p className="small center">Price shown at checkout. Paid through Stripe.</p>
           </div>
         </>
       )}
@@ -209,8 +206,8 @@ export function ProWelcome() {
   return (
     <main className="screen" style={{ padding: '20px 20px 26px', gap: 20 }}>
       <div className="grow row" style={{ justifyContent: 'center', alignItems: 'flex-end' }}><Mascot size={260} full bob label="Zorion as a superstar" /></div>
-      <div className="stack center rise" style={{ alignItems: 'center', gap: 10 }}><Chip kind="pro">Pro</Chip><h1 className="display h0">You're a superstar.</h1><p style={{ color: 'var(--muted)' }}>Pro is on. The ads are gone and your crew can grow. It can take a moment to show.</p></div>
-      <Btn to="/">Back to my meetups</Btn>
+      <div className="stack center rise" style={{ alignItems: 'center', gap: 10 }}><Chip kind="pro">Pro</Chip><h1 className="display h0">You're on Pro</h1><p style={{ color: 'var(--muted)' }}>It may take a moment to show.</p></div>
+      <Btn to="/">Back to meetups</Btn>
     </main>
   );
 }

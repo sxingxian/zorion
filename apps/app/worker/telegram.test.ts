@@ -100,7 +100,7 @@ describe('a guest on Telegram', () => {
     expect(url).toMatch(/^https:\/\/t\.me\/ZorionTestBot\?start=[A-Za-z0-9_-]{32}$/);
     await telegram(1001, `/start ${startOf(url)}`);
     expect(sent.at(-1)!.chat_id).toBe('1001');
-    expect(sent.at(-1)!.text).toContain('Updates about "Midnight poetry party" will come here, for Priya');
+    expect(sent.at(-1)!.text).toContain('Connected. You\'ll get updates about "Midnight poetry party" here.');
     expect((await priya('GET', `/api/g/${token}`)).body.meetup.me.telegram).toBe(true);
     // The host and other people never learn the chat.
     expect(JSON.stringify((await h('GET', `/api/meetups/${id}`)).body)).not.toContain('1001');
@@ -108,7 +108,7 @@ describe('a guest on Telegram', () => {
     // The same link cannot be used twice, for example by someone it was forwarded to.
     await telegram(2002, `/start ${startOf(url)}`);
     expect(sent.at(-1)!.chat_id).toBe('2002');
-    expect(sent.at(-1)!.text).toContain('That link has expired or was already used.');
+    expect(sent.at(-1)!.text).toContain('This link has expired or was already used.');
   });
 
   it('gets the same update as the email, laid out like it', async () => {
@@ -133,8 +133,8 @@ describe('a guest on Telegram', () => {
     const mailLines = mail[0]!.text.split('\n');
     const tgLines = rest.join('\n\n').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&').split('\n');
     expect(tgLines.slice(0, -1)).toEqual(mailLines.slice(0, -1));
-    expect(tgLines.at(-1)).toBe('You asked for updates about this meetup. Send /stop to stop them.');
-    expect(mailLines.at(-1)).toMatch(/Stop them: http:\/\/localhost:5173\/j\/.+\?stop=/);
+    expect(tgLines.at(-1)).toBe('Send /stop to stop these updates.');
+    expect(mailLines.at(-1)).toMatch(/Stop these updates: http:\/\/localhost:5173\/j\/.+\?stop=/);
     expect(tg[0]!.parse_mode).toBe('HTML');
     expect(tg[0]!.link_preview_options).toEqual({ is_disabled: true });
     expect(tg[0]!.text).toContain('Demo &lt;Street&gt;'); // place details from OpenStreetMap are escaped
@@ -142,7 +142,7 @@ describe('a guest on Telegram', () => {
 
   it('stops with /stop, and email updates carry on', async () => {
     await telegram(1001, '/stop');
-    expect(sent.at(-1)!.text).toContain('Stopped. Zorion will not message you here again.');
+    expect(sent.at(-1)!.text).toContain('Stopped. You won\'t get more messages here.');
     const me = (await priya('GET', `/api/g/${token}`)).body.meetup.me;
     expect(me.telegram).toBe(false);
     expect(me.email.confirmed).toBe(true);
@@ -170,14 +170,14 @@ describe('a host on Telegram', () => {
     expect((await h('GET', '/api/auth/me')).body.telegram).toBe(true);
     const { url } = (await h('POST', '/api/account/telegram', {})).body;
     await telegram(3003, `/start ${startOf(url)}`);
-    expect(sent.at(-1)!.text).toContain('Connected. Zorion will message you here about the meetups you host');
+    expect(sent.at(-1)!.text).toContain('Connected. You\'ll get updates about meetups you host here.');
     expect((await h('GET', '/api/auth/me')).body.user.telegram).toBe(true);
     sent.length = 0;
     inbox();
     await (deps.db as any).query("update participants set amend_until = now() + interval '10 minutes'");
     await g('/rsvp', { rsvp: 'maybe' });
     expect(sent.map((m) => [m.chat_id, m.text.split('\n')[0]])).toEqual([['3003', '<b>A guest changed their reply for Midnight poetry party</b>']]);
-    expect(sent[0]!.text).toContain('Switch them off under Account: http://localhost:5173/account, or send /stop.');
+    expect(sent[0]!.text).toContain('Turn these off under Account: http://localhost:5173/account, or send /stop.');
     expect(inbox().map((m) => m.to)).toEqual(['maya@example.com', 'telegram:3003']); // both channels, the same news
   });
 

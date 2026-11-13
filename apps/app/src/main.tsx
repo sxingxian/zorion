@@ -18,7 +18,7 @@ function HostRoute({ me, id, sub, pid, mode }: { me: Me; id: string; sub?: strin
   const theme = me.plan === 'pro' ? me.theme : 'pink';
   return (
     <Shell me={me} theme={theme} mode={mode} pane={m ? <HostPane m={m} /> : undefined}>
-      {missing ? <><Header title="Not found" back="/" /><main className="screen"><Note>That meetup does not exist, or it is not yours.</Note></main></> : m ? <HostMeetup key={`${m.status}:${sub ?? ''}:${pid ?? ''}`} me={me} id={id} sub={sub} pid={pid} m={m} setM={setM} /> : <Loading />}
+      {missing ? <><Header title="Not found" back="/" /><main className="screen"><Note>Meetup not found.</Note></main></> : m ? <HostMeetup key={`${m.status}:${sub ?? ''}:${pid ?? ''}`} me={me} id={id} sub={sub} pid={pid} m={m} setM={setM} /> : <Loading />}
     </Shell>
   );
 }
@@ -28,7 +28,7 @@ function GuestRoute({ token, me, mode }: { token: string; me: Me | null; mode: '
   const [notice, clearNotice] = useEmailLink(token, refresh);
   return (
     <Shell me={me} guest theme={m?.theme ?? 'pink'} mode={mode} ads={!!m?.ads} pane={m ? <GuestPane m={m} /> : undefined}>
-      {gone ? <main className="screen" style={{ justifyContent: 'center', gap: 16 }}><h1 className="display h1">This link is not active</h1><Note>{gone}</Note></main> : m ? <GuestFlow token={token} m={m} setM={setM} /> : <Loading />}
+      {gone ? <main className="screen" style={{ justifyContent: 'center', gap: 16 }}><h1 className="display h1">Link not active</h1><Note>{gone}</Note></main> : m ? <GuestFlow token={token} m={m} setM={setM} /> : <Loading />}
       <Toast text={notice} onDone={clearNotice} />
     </Shell>
   );

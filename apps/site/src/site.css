@@ -54,13 +54,6 @@ button, input, select { font: inherit; color: inherit; }
 .plans th { font-family: var(--display); font-size: 22px; letter-spacing: -0.02em; }
 .plans td:nth-child(n + 2), .plans th:nth-child(n + 2) { width: 22%; font-weight: 800; }
 .plans th:last-child, .plans td:last-child { color: var(--gold); }
-.promises { padding: clamp(72px, 12vw, 150px) 0; }
-.promises .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr)); gap: 16px; }
-.promises .tile { background: var(--card); border-radius: 28px; padding: 28px; display: flex; flex-direction: column; gap: 10px; min-height: 220px; justify-content: flex-end; }
-.promises .tile:first-child { background: var(--pink); }
-.promises h3 { font-family: var(--display); font-size: clamp(40px, 5vw, 60px); letter-spacing: -0.04em; line-height: 1; }
-.promises p { color: var(--muted); }
-.promises .tile:first-child p { color: #4a1349; }
 .adslot { max-width: 1200px; margin: 0 auto 40px; padding: 0 24px; }
 .adslot .box { border: 1px dashed var(--muted); border-radius: 16px; padding: 12px; min-height: 120px; }
 .adslot small { color: var(--muted); display: block; margin-bottom: 6px; }
@@ -132,3 +125,5 @@ button, input, select { font: inherit; color: inherit; }
 .legal p { margin: 0 0 12px; }
 .legal ul { margin: 0 0 12px; padding-left: 22px; display: grid; gap: 8px; }
 .legal > footer { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; padding: 48px 0 40px; color: var(--muted); font-size: 14px; }
+
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }

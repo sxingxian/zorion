@@ -123,7 +123,7 @@ export async function clearStrikes(db: Db, key: string): Promise<void> {
 }
 export async function guardLock(db: Db, key: string): Promise<void> {
   const until = await isLocked(db, key);
-  if (until) throw new Fail(429, 'locked', 'Too many tries. Please wait a few minutes and try again.', { retryAt: until.toISOString() });
+  if (until) throw new Fail(429, 'locked', 'Too many tries. Try again in a few minutes.', { retryAt: until.toISOString() });
 }
 
 // ---------- sessions ----------

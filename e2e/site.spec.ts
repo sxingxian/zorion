@@ -9,7 +9,7 @@ test('landing page: headline, the 3D hero or its drawn fallback, and no page err
   page.on('pageerror', (e) => errors.push(String(e)));
   await page.goto(SITE);
   await expect(page.getByRole('heading', { level: 1, name: 'Good fortune, fair walk.' })).toBeVisible();
-  await expect(page.getByRole('link', { name: 'Host a meetup, free' }).first()).toHaveAttribute('href', 'http://localhost:5173');
+  await expect(page.getByRole('link', { name: 'Host a meetup' }).first()).toHaveAttribute('href', 'http://localhost:5173');
   // Either the 3D scene took over, or the drawn map is still showing. Never neither.
   await page.waitForTimeout(2500);
   const is3d = await page.locator('.hero.is3d canvas').count();

@@ -51,8 +51,8 @@ export function Shell({ children, pane, me, theme, mode, guest = false, tabs = f
             <span className="row"><Mascot size={38} /><span className="wordmark">Zorion</span></span>
             <div className="grow row" style={{ justifyContent: 'center' }}><Mascot size={230} full bob label="Zorion the black pig" /></div>
             <div className="stack">
-              <div className="display h0">{guest ? 'One link, no account.' : 'Plan a meetup your whole crew can walk to.'}</div>
-              <p style={{ color: 'var(--muted)' }}>{guest ? 'Vote on the food, share where you are once, and meet in the fair middle.' : 'Hosts sign in. Guests join from a link and never need an account.'}</p>
+              <div className="display h0">{guest ? 'Vote, then meet in the middle.' : 'Meet in the middle.'}</div>
+              <p style={{ color: 'var(--muted)' }}>{guest ? 'No account needed.' : 'Guests join from a link.'}</p>
             </div>
             {guest && <Sponsored placement="guest_vote" show={ads} />}
           </aside>

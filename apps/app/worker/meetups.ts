@@ -65,7 +65,7 @@ export async function lookupStart(c: C, q: string) {
   try {
     return await findStart(deps, q, { country: cf?.country, ...(Number.isFinite(lat) && Number.isFinite(lng) && cf?.latitude ? { lat, lng } : {}) });
   } catch {
-    throw new Fail(409, 'search_failed', 'The place lookup did not answer. Try again in a moment, or share your GPS location.');
+    throw new Fail(409, 'search_failed', "Place search isn't responding. Try again, or share your location.");
   }
 }
 
@@ -153,9 +153,9 @@ export const meetups = new Hono<App>();
 async function owned(c: C): Promise<Loaded> {
   const user = requireUser(c);
   const id = c.req.param('id') ?? '';
-  if (!schemas.uuid.safeParse(id).success) throw new Fail(404, 'not_found', 'That meetup does not exist.');
+  if (!schemas.uuid.safeParse(id).success) throw new Fail(404, 'not_found', 'Meetup not found.');
   const L = await load(c.get('deps').db, { id });
-  if (!L || L.m.host_id !== user.id) throw new Fail(404, 'not_found', 'That meetup does not exist.'); // same answer for "not yours"
+  if (!L || L.m.host_id !== user.id) throw new Fail(404, 'not_found', 'Meetup not found.'); // same answer for "not yours"
   return L;
 }
 const respond = async (c: C, id: string) => {
@@ -193,23 +193,23 @@ meetups.post('/', async (c) => {
   for (const item of input.ballot) {
     if ('key' in item) {
       const cat = active.find((a) => a.key === item.key);
-      if (!cat) throw new Fail(422, 'invalid', 'One of those categories is no longer available.');
+      if (!cat) throw new Fail(422, 'invalid', 'One of those options is no longer available.');
       ballot.push({ key: cat.key, name: cat.name, icon: cat.icon, own: false });
     } else {
-      if (!isOwnCategoryAllowed(user.plan)) throw new Fail(402, 'pro_only', 'Your own categories come with Pro.');
-      if (!(await setting<boolean>(db, 'own_categories', true))) throw new Fail(403, 'off', 'Own categories are switched off for now.');
+      if (!isOwnCategoryAllowed(user.plan)) throw new Fail(402, 'pro_only', 'Your own options come with Pro.');
+      if (!(await setting<boolean>(db, 'own_categories', true))) throw new Fail(403, 'off', 'Your own options are switched off for now.');
       const own = cleanName(item.own.name, LIMITS.categoryName);
-      if (!own || isBlockedName(own, blocked)) throw new Fail(422, 'invalid', 'Choose another category name.');
+      if (!own || isBlockedName(own, blocked)) throw new Fail(422, 'invalid', 'Choose another name.');
       ballot.push({ key: `own_${ballot.length}`, name: own, icon: item.own.icon, own: true });
       if (item.own.save) saveOwn.push([own, item.own.icon]);
     }
   }
-  if (new Set(ballot.map((b) => b.name.toLowerCase())).size !== ballot.length) throw new Fail(422, 'invalid', 'Each category can be on the ballot once.');
+  if (new Set(ballot.map((b) => b.name.toLowerCase())).size !== ballot.length) throw new Fail(422, 'invalid', 'Each option can only be added once.');
   const size = await setting<{ free: number; pro: number }>(db, 'group_size', { free: 8, pro: 30 });
   const names: string[] = [];
   for (const raw of input.invitees) {
     const n = cleanName(raw, LIMITS.inviteeName);
-    if (!n || isBlockedName(n, blocked)) throw new Fail(422, 'invalid', 'One of those names cannot be used.');
+    if (!n || isBlockedName(n, blocked)) throw new Fail(422, 'invalid', "One of those names can't be used.");
     if (n.toLowerCase() === user.display_name.toLowerCase() || names.some((x) => x.toLowerCase() === n.toLowerCase())) throw new Fail(422, 'invalid', `"${n}" is on the list twice.`);
     names.push(n);
   }
@@ -353,7 +353,7 @@ meetups.post('/:id/middle', async (c) => {
   let winner = s.categoryLeaders[0]!;
   if (override && key && L.cats.some((cat) => cat.key === key)) winner = key;
   else if (s.categoryLeaders.length > 1) {
-    if (!key || !s.categoryLeaders.includes(key)) throw new Fail(409, 'tie', 'It is a tie. Pick one of the leaders.', { leaders: s.categoryLeaders });
+    if (!key || !s.categoryLeaders.includes(key)) throw new Fail(409, 'tie', "It's a tie. Pick one.", { leaders: s.categoryLeaders });
     winner = key;
   }
   const host = L.people.find((p) => p.is_host)!;
@@ -366,7 +366,7 @@ meetups.post('/:id/middle', async (c) => {
   try {
     found = await findPlaces(deps, middle, { name: cat.name, own: cat.own, osm: (def?.osm as string[]) ?? [], google: (def?.google as object) ?? {} });
   } catch {
-    throw new Fail(409, 'search_failed', 'The place search did not answer. Try again in a moment.');
+    throw new Fail(409, 'search_failed', "Place search isn't responding. Try again.");
   }
   if (found.places.length === 0) throw new Fail(409, 'no_places', `No places for ${cat.name} near the middle. Pick another category.`, { tally: s.categoryTally });
   const people = coming.map((p) => ({ id: p.id as string, lat: p.lat as number, lng: p.lng as number }));
@@ -416,7 +416,7 @@ meetups.post('/:id/shortlist', async (c) => {
     await later(c, tellGuests(c.get('deps'), L.m.id, 'confirmed'));
     return respond(c, L.m.id);
   }
-  if (!hostPick || !picked.includes(hostPick)) throw new Fail(409, 'vote_first', 'Cast your own vote for one of the places first.');
+  if (!hostPick || !picked.includes(hostPick)) throw new Fail(409, 'vote_first', 'Vote for one of the places first.');
   const host = L.people.find((p) => p.is_host)!;
   await db.batch([
     ['update places set shortlisted = (id = any($2::uuid[])) where meetup_id = $1', [L.m.id, picked]],
@@ -435,7 +435,7 @@ meetups.post('/:id/lock', async (c) => {
   const s = summarise(L);
   const short = L.places.filter((p) => p.shortlisted).map((p) => p.id as string);
   const chosen = id && short.includes(id) ? id : s.placeLeaders.length === 1 ? s.placeLeaders[0]! : null;
-  if (!chosen) throw new Fail(409, 'tie', 'It is a tie. Pick the place.', { leaders: s.placeLeaders });
+  if (!chosen) throw new Fail(409, 'tie', "It's a tie. Pick the place.", { leaders: s.placeLeaders });
   await c.get('deps').db.query('update meetups set chosen_place = $2, status = $3, confirmed_at = now(), updated_at = now() where id = $1', [L.m.id, chosen, 'confirmed']);
   await later(c, tellGuests(c.get('deps'), L.m.id, 'confirmed'));
   return respond(c, L.m.id);
