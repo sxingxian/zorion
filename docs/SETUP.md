@@ -135,7 +135,7 @@ Limits to know:
 
 Besides sign-in codes, Zorion sends:
 
-- **To hosts**: when the date answers, the food votes or the place votes are complete, and when a guest changes a choice after the plan is confirmed (at most one an hour per meetup). A host can switch these off under Account.
+- **To hosts**: when the date answers, the food votes or the place votes are complete, and when a guest changes their reply after the plan is confirmed (at most one an hour per meetup). After confirmation the reply is the only thing a guest can change. A host can switch these off under Account.
 - **To guests who ask**: when the date is set, when the place vote opens, when the place is confirmed, and when the date moves. A guest leaves an address on the meetup page and must confirm it from their inbox first. Every email has a stop link.
 
 All of it goes through Resend with the same `RESEND_API_KEY` and `EMAIL_FROM`. Nothing else to set up.

@@ -40,7 +40,7 @@ export type GuestEvent = 'dates' | 'categories' | 'place' | 'change';
 
 /**
  * Called after a guest acts. Tells the host only when it changes what the host can do next:
- * a vote is complete, or a guest changed a choice after the plan was confirmed.
+ * a vote is complete, or a guest changed their reply after the plan was confirmed (the only change still allowed).
  */
 export async function tellHost(deps: Deps, meetupId: string, event: GuestEvent, detail = ''): Promise<void> {
   const L = await load(deps.db, { id: meetupId });
@@ -71,7 +71,7 @@ export async function tellHost(deps: Deps, meetupId: string, event: GuestEvent, 
   } else if (event === 'change' && L.m.status === 'confirmed') {
     // At most one of these an hour per meetup, however many changes arrive.
     if (!(await claim(deps, L.m.id, 'change', 60))) return;
-    await sendEmail(deps, host.email, `A guest changed a choice for ${L.m.name}`, [detail || 'A guest changed one of their choices after the plan was confirmed.', `See what changed: ${manage}/changes`, '', footer(deps)].join('\n'));
+    await sendEmail(deps, host.email, `A guest changed their reply for ${L.m.name}`, [detail || 'A guest changed their reply after the plan was confirmed.', `See what changed: ${manage}/changes`, '', footer(deps)].join('\n'));
     return;
   }
   if (!kind || !(await claim(deps, L.m.id, kind))) return;

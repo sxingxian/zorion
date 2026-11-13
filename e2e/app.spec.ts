@@ -65,6 +65,22 @@ test('fixed date: from a new meetup to "it is on", with a typed start and no coo
   await expect(mia.page.getByText('Fair Middle it is.')).toBeVisible();
   await expect(mia.page.getByText('Open directions')).toBeVisible();
 
+  // Coming back after confirmation: only the reply can change, and it still asks for the code.
+  await expect(mia.page.getByText('Change my choices')).toHaveCount(0);
+  await tap(mia.page, 'Change my reply');
+  if (await mia.page.getByText('Enter your code').isVisible()) {
+    await typeCode(mia.page, mia.code);
+    await tap(mia.page, 'Continue to my reply');
+  }
+  await expect(mia.page.getByRole('heading', { name: 'Change your reply' })).toBeVisible();
+  await expect(mia.page.getByText('The date, time and place are set; only your reply can change.')).toBeVisible();
+  await expect(mia.page.getByText(/Starting point|Place pick|Food picks|Dates you can make/)).toHaveCount(0);
+  await tap(mia.page, 'Maybe');
+  await tap(mia.page, 'Save my reply');
+  await expect(mia.page.getByText('Fair Middle it is.')).toBeVisible();
+  await page.reload();
+  await expect(page.getByText('Maybe').first()).toBeVisible();
+
   // Privacy: what a guest's browser receives never holds another person's position.
   const seen = await (await mia.page.request.get(`${APP}/api/g/${link.split('/j/')[1]}`)).json();
   const others = JSON.stringify(seen.meetup.people);

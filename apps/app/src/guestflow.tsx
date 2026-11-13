@@ -50,8 +50,10 @@ export function GuestFlow({ token, m, setM }: { token: string; m: M; setM: (m: M
   const sched = when(m.startsAt, tz);
   const hosted = `${m.dateIsSet ? sched : 'Date being voted'} · hosted by ${m.hostName}`;
   const editing = view !== 'auto' && view !== 'code';
-  const backToEdit = editing && view !== 'edit' ? () => setView('edit') : undefined;
-  const done = () => setView(editing ? 'edit' : 'auto');
+  // Once the plan is confirmed only the reply can change, so there is no choices menu to go back to.
+  const locked = m.status === 'confirmed';
+  const backToEdit = editing && view !== 'edit' ? () => setView(locked ? 'auto' : 'edit') : undefined;
+  const done = () => setView(editing && !locked ? 'edit' : 'auto');
 
   // ----- not known on this device yet -----
   if (!me) {
@@ -109,13 +111,13 @@ export function GuestFlow({ token, m, setM }: { token: string; m: M; setM: (m: M
   if (view === 'code') {
     return (
       <>
-        <Header title={m.name} sub={`${me.name} · change your choices`} onBack={() => setView('auto')} />
+        <Header title={m.name} sub={`${me.name} · ${m.status === 'confirmed' ? 'change your reply' : 'change your choices'}`} onBack={() => setView('auto')} />
         <main className="screen" style={{ padding: '6px 20px 24px', gap: 14 }}>
-          <div className="stack"><h1 className="display h1">Enter your code</h1><p className="small" style={{ fontSize: 15 }}>Changing a choice always asks for your 4-character code, even on this device.</p></div>
+          <div className="stack"><h1 className="display h1">Enter your code</h1><p className="small" style={{ fontSize: 15 }}>{m.status === 'confirmed' ? 'Changing your reply' : 'Changing a choice'} always asks for your 4-character code, even on this device.</p></div>
           <Codes big length={LIMITS.guestCodeLength} digits={false} value={code} onChange={setCode} label="Your 4-character code" />
           <Oops>{error}</Oops>
           <p className="small" style={{ fontSize: 14 }}>Three wrong tries pauses this link on your device for 10 minutes. Lost it? Ask {m.hostName} to reset your code.</p>
-          <Btn className="push" busy={busy} disabled={code.length !== LIMITS.guestCodeLength} onClick={async () => (await call('/code', { code })) && setView('edit')}>Continue to my choices</Btn>
+          <Btn className="push" busy={busy} disabled={code.length !== LIMITS.guestCodeLength} onClick={async () => (await call('/code', { code })) && setView(m.status === 'confirmed' ? 'rsvp' : 'edit')}>{m.status === 'confirmed' ? 'Continue to my reply' : 'Continue to my choices'}</Btn>
         </main>
       </>
     );
@@ -129,18 +131,19 @@ export function GuestFlow({ token, m, setM }: { token: string; m: M; setM: (m: M
   // ----- your choices (after the code) -----
   if (view === 'edit') {
     if (!me.canAmend) return <Redirect to={() => setView('code')} />;
+    if (locked) return <Redirect to={() => setView('rsvp')} />;
     const row = (label: string, value: ReactNode, to: View, show = true) => show && <button key={label} className="pick rise" onClick={() => setView(to)}><span className="grow stack" style={{ gap: 0 }}><span className="small">{label}</span><strong>{value}</strong></span><Chevron /></button>;
     return (
       <>
         <Header title={m.name} sub={`${me.name} · code accepted`} onBack={() => setView('auto')} />
         <main className="screen">
           <h1 className="display h1">Your choices</h1>
-          <Note>{m.status === 'confirmed' ? `The meetup is confirmed. You can still change anything here. ${m.hostName} is told, and decides if the plan moves.` : 'Change anything here for the next 10 minutes.'}</Note>
+          <Note>Change anything here for the next 10 minutes. Once {m.hostName} confirms the plan, only your reply can change.</Note>
           <div className="stack">
             {row('Reply', reply, 'rsvp', m.dateIsSet)}
             {row('Dates you can make', myDates || 'None picked', 'dates', m.status === 'date_vote')}
             {row('Food picks', myCats || 'None yet', 'categories', ['date_vote', 'voting'].includes(m.status) && m.maxVotes > 0)}
-            {row('Place pick', myPlace ?? 'None yet', 'place', m.status === 'place_vote' || (m.status === 'confirmed' && !!me.place))}
+            {row('Place pick', myPlace ?? 'None yet', 'place', m.status === 'place_vote')}
             {row('Starting point', me.hasLocation ? 'Shared once · update it' : 'Not shared', 'location')}
           </div>
           <Btn kind="second" className="push" onClick={() => setView('auto')}>Back to the meetup info</Btn>
@@ -158,7 +161,7 @@ export function GuestFlow({ token, m, setM }: { token: string; m: M; setM: (m: M
           : m.status === 'voting' && me.categories.length === 0 && m.maxVotes > 0 ? 'categories'
             : m.status === 'place_vote' && !me.place ? 'place'
               : m.status === 'confirmed' ? 'info' : 'wait';
-  const screen = editing ? view : need;
+  const screen = editing ? (locked && view !== 'rsvp' ? 'rsvp' : view) : need;
 
   if (screen === 'dates') {
     const sel = list.length || editing ? list : (me.dates as string[]);
@@ -192,7 +195,7 @@ export function GuestFlow({ token, m, setM }: { token: string; m: M; setM: (m: M
   }
 
   if (screen === 'rsvp') {
-    const options: Array<[string, string, string]> = [['going', 'Going', m.status === 'place_vote' || m.status === 'confirmed' ? 'See the place' : 'Share where you are and vote'], ['maybe', 'Maybe', 'Vote now, confirm later'], ['no', "Can't go", `Let ${m.hostName} know and skip the rest`]];
+    const options: Array<[string, string, string]> = [['going', 'Going', m.status === 'place_vote' || m.status === 'confirmed' ? 'See the place' : 'Share where you are and vote'], ['maybe', 'Maybe', locked ? 'Not sure yet' : 'Vote now, confirm later'], ['no', "Can't go", `Let ${m.hostName} know and skip the rest`]];
     const sel = pickId || (me.rsvp !== 'none' ? me.rsvp : '');
     return (
       <>
@@ -203,6 +206,7 @@ export function GuestFlow({ token, m, setM }: { token: string; m: M; setM: (m: M
           {me.rsvpIsDefault && !editing && <Note ok>You picked this date, so you are down as going. Change it below if you need to.</Note>}
           {m.dateMode === 'vote' && me.pickedSetDate === false && me.rsvp === 'none' && !me.joinedLate && <Note>The crew went with a date you did not pick, so nothing is set for you yet.</Note>}
           {me.joinedLate && me.rsvp === 'none' && <Note>You joined after the date vote. This is the date the crew set.</Note>}
+          {locked && <Note ok>The plan is confirmed. The date, time and place are set; only your reply can change. {m.hostName} is told.</Note>}
           <h1 className="display h1">{editing ? 'Change your reply' : 'Are you coming?'}</h1>
           <div className="stack" role="radiogroup" aria-label="RSVP">{options.map(([v, t, meta]) => <Pick key={v} radio on={sel === v} onClick={() => setPickId(v)} title={t} meta={meta} />)}</div>
           <p className="small">You can change your reply any time. You will need your code.</p>
@@ -287,7 +291,7 @@ export function GuestFlow({ token, m, setM }: { token: string; m: M; setM: (m: M
             <div className="grid3">{[[sched.split(', ')[1], 'meet-up'], [place?.myMinutes ? `${place.myMinutes} min` : '—', 'your trip'], [m.progress.going, 'going']].map(([v, l], i) => <div key={l} className="card rise" style={{ padding: 10, borderRadius: 14, background: i === 1 ? 'var(--accent)' : undefined, color: i === 1 ? 'var(--ink)' : undefined }}><div className="display h2">{v}</div><div style={{ fontSize: 12 }}>{l}</div></div>)}</div>
             {place?.directions && <a className="btn" href={place.directions} target="_blank" rel="noopener noreferrer">Open directions</a>}
             <EmailUpdates token={token} m={m} setM={setM} />
-            <div className="row between"><button className="btn text" style={{ width: 'auto' }} onClick={() => setView(me.canAmend ? 'edit' : 'code')}>Change my choices</button><Link to="/sign-in" className="btn text" style={{ width: 'auto' }}>Host your own, free</Link></div>
+            <div className="row between"><button className="btn text" style={{ width: 'auto' }} onClick={() => setView(me.canAmend ? 'rsvp' : 'code')}>Change my reply</button><Link to="/sign-in" className="btn text" style={{ width: 'auto' }}>Host your own, free</Link></div>
           </div>
         </main>
       </>

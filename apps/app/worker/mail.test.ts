@@ -138,11 +138,11 @@ describe('the plan moving on', () => {
     expect(mail[0]!.text).toMatch(/Tue,? 1 Dec,? 8:00\s?pm/i); // 12:00 UTC is 8pm in Singapore
   });
 
-  it('tells the host about a change after confirmation, at most once an hour', async () => {
+  it('tells the host about a changed reply after confirmation, at most once an hour', async () => {
     await (deps.db as any).query("update participants set amend_until = now() + interval '10 minutes'");
     await g(dev, '/rsvp', { rsvp: 'maybe' });
     const mail = inbox();
-    expect(mail.map((m) => [m.to, m.subject])).toEqual([['maya@example.com', 'A guest changed a choice for Midnight poetry party']]);
+    expect(mail.map((m) => [m.to, m.subject])).toEqual([['maya@example.com', 'A guest changed their reply for Midnight poetry party']]);
     expect(mail[0]!.text).toContain('Dev: Reply: going to maybe');
     await g(dev, '/rsvp', { rsvp: 'going' });
     expect(inbox()).toHaveLength(0);

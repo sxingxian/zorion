@@ -33,7 +33,8 @@ Card details never reach Zorion. Checkout and the customer portal are Stripe's o
 ## Guests
 
 - No account. The link carries a random 128-bit token.
-- A 4-character code identifies a guest on a new browser and is required to change any choice. Three wrong tries pause code entry for that network for 10 minutes, and 20 wrong tries pause it for the whole meetup, so changing network does not help a guesser.
+- A 4-character code identifies a guest on a new browser and is required to change any choice. Once the plan is confirmed, the server accepts only a change of reply; dates, food votes, place votes and starting points are refused.
+- Three wrong tries pause code entry for that network for 10 minutes, and 20 wrong tries pause it for the whole meetup, so changing network does not help a guesser.
 - The host can reset a guest's code. The host never sees it.
 
 ## Emails to guests

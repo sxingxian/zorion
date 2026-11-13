@@ -50,6 +50,11 @@ async function rememberDevice(c: C, L: Loaded, participantId: string): Promise<v
 }
 
 /** A choice that already exists can only be changed with a fresh code check. */
+/** Once the plan is confirmed, a guest can change only their reply. Date, place and starting point are fixed. */
+function replyOnly(L: Loaded): void {
+  if (L.m.status === 'confirmed') throw new Fail(409, 'confirmed', 'The plan is confirmed, so only your reply can change now.');
+}
+
 function needAmend(_c: C, p: Row, alreadySet: boolean): void {
   if (!alreadySet) return;
   if (!p.can_amend) throw new Fail(403, 'code_required', 'Enter your code to change this.');
@@ -190,6 +195,7 @@ guest.post('/:token/dates', async (c) => {
   const L = await open(c);
   const p = await me(c, L);
   const input = await body(c, z.object({ ids: z.array(schemas.uuid).max(LIMITS.dateOptionsMax), none: z.boolean().default(false) }));
+  replyOnly(L);
   if (L.m.status !== 'date_vote') throw new Fail(409, 'closed', 'The date is already set.');
   needAmend(c, p, p.dates.length > 0 || p.no_date_works);
   const ids = [...new Set(input.ids)].filter((id) => L.dates.some((d) => d.id === id));
@@ -206,6 +212,7 @@ guest.post('/:token/dates', async (c) => {
 guest.post('/:token/location', async (c) => {
   const L = await open(c);
   const p = await me(c, L);
+  replyOnly(L);
   const at = await body(c, schemas.point);
   needAmend(c, p, p.lat !== null);
   await c.get('deps').db.batch([
@@ -220,6 +227,7 @@ guest.post('/:token/location', async (c) => {
 guest.post('/:token/start-search', async (c) => {
   const L = await open(c);
   await me(c, L);
+  replyOnly(L);
   const { q } = await body(c, schemas.startSearch);
   return c.json({ results: await lookupStart(c, q) });
 });
@@ -228,6 +236,7 @@ guest.post('/:token/categories', async (c) => {
   const L = await open(c);
   const p = await me(c, L);
   const { keys } = await body(c, schemas.keyList);
+  replyOnly(L);
   if (!['date_vote', 'voting'].includes(L.m.status)) throw new Fail(409, 'closed', 'The category vote is closed.');
   needAmend(c, p, p.categories.length > 0);
   const max = maxCategoryVotes(L.cats.length);
@@ -298,10 +307,10 @@ guest.post('/:token/place', async (c) => {
   const L = await open(c);
   const p = await me(c, L);
   const { id } = await body(c, schemas.oneId);
-  if (!['place_vote', 'confirmed'].includes(L.m.status)) throw new Fail(409, 'closed', 'There is no place vote right now.');
+  replyOnly(L);
+  if (L.m.status !== 'place_vote') throw new Fail(409, 'closed', 'There is no place vote right now.');
   const place = L.places.find((x) => x.id === id && x.shortlisted);
   if (!place) throw new Fail(422, 'invalid', 'Pick one of the shortlisted places.');
-  if (L.m.status === 'confirmed' && !p.place) throw new Fail(409, 'closed', 'The place is already locked in.');
   needAmend(c, p, !!p.place);
   await c.get('deps').db.batch([
     ['insert into place_votes (participant_id, place_id) values ($1, $2) on conflict (participant_id) do update set place_id = excluded.place_id', [p.id, id]],

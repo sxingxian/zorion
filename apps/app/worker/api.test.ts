@@ -228,8 +228,17 @@ describe('a fixed-date meetup, start to finish', () => {
     expect((await priya('POST', `/api/g/${token}/rsvp`, { rsvp: 'no' })).body.error).toBe('code_required');
     await priya('POST', `/api/g/${token}/code`, { code: priyaCode });
     expect((await priya('POST', `/api/g/${token}/rsvp`, { rsvp: 'no' })).status).toBe(200);
+    // Everything but the reply is fixed now, even with the code accepted.
+    const fixed = [
+      await priya('POST', `/api/g/${token}/location`, { lat: 1.31, lng: 103.87 }),
+      await priya('POST', `/api/g/${token}/place`, { id: view.places[0].id }),
+      await priya('POST', `/api/g/${token}/categories`, { keys: ['ramen'] }),
+      await priya('POST', `/api/g/${token}/dates`, { ids: [], none: true }),
+      await priya('POST', `/api/g/${token}/start-search`, { q: 'Bugis MRT' }),
+    ];
+    expect(fixed.map((r) => [r.status, r.body.error])).toEqual(Array(5).fill([409, 'confirmed']));
     const hostView = (await h('GET', `/api/meetups/${id}`)).body.meetup;
-    expect(hostView.unseenChanges).toBe(1);
+    expect(hostView.unseenChanges).toBe(1); // only the reply change reached the host
     // Someone who can't go is no longer counted among the people a vote is waiting for.
     const after = (await priya('GET', `/api/g/${token}`)).body.meetup;
     expect(after.progress.total).toBe(hostView.people.filter((p: any) => p.rsvp !== 'no').length);

@@ -69,7 +69,7 @@ export function Privacy() {
 
       <h2>Your choices</h2>
       <ul>
-        <li><strong>Guests</strong> can change or withdraw any reply, vote or starting point from the meetup link, using their code. To have your name removed from a meetup, ask the host or write to us.</li>
+        <li><strong>Guests</strong> can change any reply, vote or starting point from the meetup link, using their code, until the host confirms the plan. After that only the reply can change; your starting point is still erased when the meetup ends, or sooner if you write to us. To have your name removed from a meetup, ask the host or write to us.</li>
         <li><strong>Hosts</strong> can download their data and delete their account from the Account screen in the app. Deleting an account deletes its meetups. Emails about your meetups can be switched off there too; sign-in codes cannot, because they are how you sign in.</li>
         <li><strong>Email updates for guests</strong> stop from the link in any of the emails, or from the meetup page.</li>
         <li>You can refuse location permission and type a place instead, or reply without sharing a starting point at all. The middle is then worked out without you.</li>

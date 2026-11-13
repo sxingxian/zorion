@@ -150,16 +150,16 @@ describe('routed travel times', () => {
     expect(places.every((p: any) => p.routed)).toBe(true);
     expect(places[0].name).toBe('Place 8'); // quickest by route, though furthest by straight line
     expect(places[0].longest).toBe(17); // 30 - 7*2 + 1, the slower of the two people
-    // Guests see places once the host has chosen. One pick confirms it straight away.
-    await h('POST', `/api/meetups/${id}/shortlist`, { ids: [places[0].id] });
+    // Guests see places once the host shortlists them for the final vote.
+    await h('POST', `/api/meetups/${id}/shortlist`, { ids: [places[0].id, places[1].id], hostPick: places[0].id });
     const mine = (await guest('GET', `/api/g/${token}`)).body.meetup.places;
-    expect(mine).toHaveLength(1);
+    expect(mine).toHaveLength(2);
     expect(mine[0].myMinutes).toBe(17);
     expect(mine[0].routed).toBe(true);
   });
 
   it('falls back to the estimate for one person once they change their start', async () => {
-    await (deps.db as any).query('update participants set amend_until = now() + interval \'10 minutes\'');
+    await (deps.db as any).query('update participants set amend_until = now() + interval \'10 minutes\''); // still the place vote: starts can change
     await guest('POST', `/api/g/${token}/location`, { lat: 1.3, lng: 103.857 });
     const mine = (await guest('GET', `/api/g/${token}`)).body.meetup.places;
     expect(mine[0].myMinutes).toBeLessThan(5); // Place 8 is now about 20 metres away by straight line
