@@ -248,7 +248,9 @@ test('emails: a guest opts in and confirms, the host hears the votes are in, the
 
 test('telegram: a guest and the host connect, and get the same update as email, laid out like it', async ({ page, browser }) => {
   const { mailsTo, pressStartInTelegram, telegramTo } = await import('./helpers');
-  await signIn(page, 'host-tg@example.com');
+  const hostEmail = `host-tg-${Date.now()}@example.com`; // fresh each run, so a retry starts clean
+  const guestEmail = `mia-tg-${Date.now()}@example.com`;
+  await signIn(page, hostEmail);
 
   // The host connects Telegram under Account.
   await page.goto(`${APP}/account`);
@@ -276,14 +278,15 @@ test('telegram: a guest and the host connect, and get the same update as email, 
   await mia.page.reload();
   await expect(mia.page.getByText('Updates come on')).toBeVisible(); // Telegram only, so far
   await tap(mia.page, 'Also by email');
-  await mia.page.getByLabel('Your email').fill('mia-tg@example.com');
+  await mia.page.getByLabel('Your email').fill(guestEmail);
   await tap(mia.page, 'Email me updates');
-  const confirm = (await mailsTo(page, 'mia-tg@example.com')).at(-1)!;
+  await expect(mia.page.getByText(/open the link to confirm/)).toBeVisible(); // the request has finished, so the email is out
+  const confirm = (await mailsTo(page, guestEmail)).at(-1)!;
   await mia.page.goto(confirm.text.match(/http\S+\?confirm=\S+/)![0]);
   await expect(mia.page.getByText('Email updates go to')).toBeVisible();
 
   // The host heard the votes are in on both channels, worded the same.
-  const hostMail = (await mailsTo(page, 'host-tg@example.com')).find((m) => m.subject.startsWith('The food votes are in'))!;
+  const hostMail = (await mailsTo(page, hostEmail)).find((m) => m.subject.startsWith('The food votes are in'))!;
   const hostTg = (await telegramTo(page, 7001)).find((m) => m.subject.startsWith('The food votes are in'))!;
   expect(hostTg.subject).toBe(hostMail.subject);
   expect(hostTg.text.split('\n').slice(0, -1)).toEqual(hostMail.text.split('\n').slice(0, -1));
@@ -295,7 +298,7 @@ test('telegram: a guest and the host connect, and get the same update as email, 
   await tap(page, 'Star Table');
   await tap(page, 'Lock in Star Table and share');
   await expect(page.getByText('It is on.')).toBeVisible();
-  const mail = (await mailsTo(page, 'mia-tg@example.com')).at(-1)!;
+  const mail = (await mailsTo(page, guestEmail)).at(-1)!;
   const tg = (await telegramTo(page, 7002)).at(-1)!;
   expect(tg.subject).toBe('It is on: Midnight poetry party');
   expect(tg.subject).toBe(mail.subject);
