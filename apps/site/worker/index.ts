@@ -3,7 +3,7 @@ import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import { z } from 'zod';
 import { OWN_ICONS, cleanName } from '@zorion/core';
 import { type Db, type Row, neonDb, one } from '@zorion/db';
-import { hmac, randomToken, sha256, unseal, verifyPassword, verifyTotp } from '@zorion/server/crypto';
+import { hashPassword, hmac, newTotpSecret, otpauthUri, randomToken, safeEqual, seal, sha256, unseal, verifyPassword, verifyTotp } from '@zorion/server/crypto';
 
 export interface Env {
   DATABASE_URL: string;
@@ -13,6 +13,7 @@ export interface Env {
   TOTP_KEY: string;
   ENVIRONMENT?: string;
   CONTACT_EMAIL?: string; // shown on the privacy and terms pages
+  ADMIN_SETUP_TOKEN?: string; // lets the owner create the first admin in the browser, only while there are none
 }
 interface Deps { db: Db; env: Env; now(): Date }
 interface Admin { id: string; email: string; role: 'super' | 'support' }
@@ -95,7 +96,7 @@ export function createAdmin(overrides: Partial<Deps> = {}) {
     c.set('pending', null);
     await next();
     c.header('x-content-type-options', 'nosniff');
-    c.header('cache-control', 'no-store');
+    if (!c.res.headers.has('cache-control')) c.header('cache-control', 'no-store');
     c.header('x-robots-tag', 'noindex, nofollow');
   });
 
@@ -106,6 +107,15 @@ export function createAdmin(overrides: Partial<Deps> = {}) {
     const adsense = (await one(db, "select value from settings where key = 'adsense'"))?.value ?? {};
     const contactEmail = env.CONTACT_EMAIL && /^[^\s@<>"']+@[^\s@<>"']+\.[^\s@<>"']+$/.test(env.CONTACT_EMAIL) ? env.CONTACT_EMAIL : null;
     return c.json({ appUrl: env.APP_ORIGIN, contactEmail, adsense: on && adsense.publisherId ? { publisherId: adsense.publisherId, consent: adsense.consent !== false } : null });
+  });
+
+  // AdSense's ads.txt, made from the publisher ID saved in the admin portal, so no file has to be committed.
+  app.get('/ads.txt', async (c) => {
+    const adsense = (await one(c.get('deps').db, "select value from settings where key = 'adsense'"))?.value ?? {};
+    const pub = typeof adsense.publisherId === 'string' ? adsense.publisherId.replace(/^ca-/, '') : '';
+    if (!/^pub-\d{10,20}$/.test(pub)) return c.text('', 404);
+    c.header('cache-control', 'public, max-age=300');
+    return c.text(`google.com, ${pub}, DIRECT, f08c47fec0942fa0\n`);
   });
 
   app.use('/admin/api/*', async (c, next) => {
@@ -127,6 +137,56 @@ export function createAdmin(overrides: Partial<Deps> = {}) {
   });
 
   const api = new Hono<App>();
+
+  // ---------- first admin, from the browser ----------
+  // Open only while there are no admins at all, and only with ADMIN_SETUP_TOKEN, a secret the owner
+  // sets on this Worker. Once the first admin exists, these routes refuse everything.
+  const SETUP_KEY = 'admin-setup';
+  async function setupOpen(c: C): Promise<boolean> {
+    const { db, env } = c.get('deps');
+    return !!env.ADMIN_SETUP_TOKEN && env.ADMIN_SETUP_TOKEN.length >= 16 && !(await one(db, 'select 1 from admins limit 1'));
+  }
+  async function checkSetupToken(c: C, token: string): Promise<void> {
+    const { db, env } = c.get('deps');
+    if (!(await setupOpen(c))) throw new Fail(404, 'closed', 'Setup is closed.');
+    if (await locked(db, SETUP_KEY)) throw new Fail(429, 'locked', 'Too many tries. Try again in 30 minutes.');
+    if (!safeEqual(token, env.ADMIN_SETUP_TOKEN!)) {
+      await strike(db, SETUP_KEY);
+      await db.query('insert into audit_log (action) values ($1)', ['setup.failed']);
+      throw new Fail(401, 'wrong', 'That setup token did not match.');
+    }
+  }
+  api.get('/setup', async (c) => c.json({ open: await setupOpen(c) }));
+  /** A fresh authenticator key. Nothing is stored until the owner proves it works in the next call. */
+  api.post('/setup/key', async (c) => {
+    const { token } = await body(c, z.object({ token: z.string().max(256) }));
+    await checkSetupToken(c, token);
+    const secret = newTotpSecret();
+    return c.json({ secret, uri: otpauthUri(secret, 'first admin', 'Zorion Admin') });
+  });
+  api.post('/setup', async (c) => {
+    const input = await body(c, z.object({
+      token: z.string().max(256),
+      email: z.string().trim().toLowerCase().email().max(254),
+      password: z.string().min(12, 'Use at least 12 characters.').max(128),
+      secret: z.string().regex(/^[A-Z2-7]{32}$/),
+      code: z.string().regex(/^\d{6}$/),
+    }));
+    await checkSetupToken(c, input.token);
+    const { db, env, now } = c.get('deps');
+    const step = await verifyTotp(input.secret, input.code, now(), 0);
+    if (step === null) throw new Fail(401, 'wrong_code', 'That code did not match. Check the time on your phone.');
+    // Inserted only if there is still no admin, so two tabs racing cannot make two.
+    const row = await one(db, `insert into admins (email, password_hash, totp_secret, totp_enabled, totp_last_step, role)
+      select $1, $2, $3, true, $4, 'super' where not exists (select 1 from admins) returning id`,
+      [input.email, await hashPassword(input.password, env.PEPPER), await seal(input.secret, env.TOTP_KEY), step]);
+    if (!row) throw new Fail(404, 'closed', 'Setup is closed.');
+    await db.query('delete from throttles where key = $1', [SETUP_KEY]);
+    await session(c, row.id, 'full');
+    c.set('admin', { id: row.id, email: input.email, role: 'super' });
+    await audit(c, 'setup.first_admin', mask(input.email));
+    return c.json({ next: 'done' });
+  });
 
   // Admin sign-in is always password, then authenticator. No email codes, no recovery by email.
   api.post('/sign-in', async (c) => {

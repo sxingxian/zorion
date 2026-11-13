@@ -5,7 +5,7 @@ import { type App, type Deps, type Env, Fail, isProd, loadSession } from './core
 import { ads, billing, cleanUp, webhooks } from './extras';
 import { guest } from './guest';
 import { catalog, meetups } from './meetups';
-import { telegramWebhook } from './telegram';
+import { ensureTelegramWebhook, telegramWebhook } from './telegram';
 
 const outbox: Deps['outbox'] = [];
 
@@ -67,6 +67,9 @@ const app = createApp();
 export default {
   fetch: app.fetch,
   async scheduled(_event: unknown, env: Env) {
-    await cleanUp(neonDb(env.DATABASE_URL));
+    const db = neonDb(env.DATABASE_URL);
+    await cleanUp(db);
+    // Connects the Telegram bot by itself once its secrets are set (within the hour).
+    await ensureTelegramWebhook({ db, env, fetch: (...a: Parameters<typeof fetch>) => fetch(...a), now: () => new Date(), outbox: [] }).catch((err) => console.error('telegram webhook', err instanceof Error ? err.message : err));
   },
 };

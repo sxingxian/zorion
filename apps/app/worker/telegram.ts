@@ -105,3 +105,35 @@ async function connect(deps: Deps, chatId: string, token: string): Promise<void>
   const p = (await one(deps.db, `update participants p set telegram_chat_id = $2 from meetups m where p.id = $1 and m.id = p.meetup_id returning p.name, m.name as meetup`, [link.participant_id, chatId])) as Row | null;
   if (p) await reply(deps, chatId, `Connected. You'll get updates about "${p.meetup}" here. Send /stop to stop.`);
 }
+
+// ---------- connecting the bot to the app ----------
+
+/**
+ * Points the bot's webhook at this app, so nobody has to run a set-up command. Runs with the hourly job.
+ * Telegram does not say which secret a webhook uses, so a hash of the one we gave it is remembered and the
+ * webhook is set again whenever the address or the secret changes.
+ */
+export async function ensureTelegramWebhook(deps: Deps): Promise<'off' | 'ok' | 'set'> {
+  const { TELEGRAM_BOT_TOKEN: token, TELEGRAM_WEBHOOK_SECRET: secret, APP_ORIGIN } = deps.env;
+  const url = `${APP_ORIGIN}/api/webhooks/telegram`;
+  if (!token || !secret || !url.startsWith('https://')) return 'off';
+  const call = async (method: string, body: unknown = {}) => {
+    const res = await deps.fetch(`https://api.telegram.org/bot${token}/${method}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(8000),
+    });
+    const data = (await res.json().catch(() => null)) as { ok?: boolean; result?: { url?: string }; description?: string } | null;
+    if (!data?.ok) throw new Error(`Telegram ${method} failed: ${data?.description ?? res.status}`);
+    return data.result;
+  };
+  const want = { url, secret: await sha256(secret) };
+  const saved = (await one(deps.db, "select value from settings where key = 'telegram_webhook'"))?.value as typeof want | undefined;
+  const current = await call('getWebhookInfo');
+  if (current?.url === url && saved?.url === url && saved.secret === want.secret) return 'ok';
+  await call('setWebhook', { url, secret_token: secret, allowed_updates: ['message'] });
+  await call('setMyCommands', { commands: [{ command: 'stop', description: 'Stop all messages from Zorion' }] });
+  await deps.db.query("insert into settings (key, value) values ('telegram_webhook', $1) on conflict (key) do update set value = excluded.value, updated_at = now()", [JSON.stringify(want)]);
+  return 'set';
+}

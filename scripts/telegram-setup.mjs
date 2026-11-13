@@ -1,5 +1,5 @@
-// Points Zorion's Telegram bot at the app and sets its commands. Run once after deploying,
-// and again if the bot token, the secret or the app address changes.
+// Points Zorion's Telegram bot at the app and sets its commands straight away. Optional: the app's hourly
+// job does the same by itself once TELEGRAM_BOT_TOKEN and TELEGRAM_WEBHOOK_SECRET are set.
 //   TELEGRAM_BOT_TOKEN=... TELEGRAM_WEBHOOK_SECRET=... APP_ORIGIN=https://zorionapp.midnightpoetry.studio npm run telegram:setup
 const { TELEGRAM_BOT_TOKEN: token, TELEGRAM_WEBHOOK_SECRET: secret, APP_ORIGIN: origin } = process.env;
 if (!token || !secret || !origin) {

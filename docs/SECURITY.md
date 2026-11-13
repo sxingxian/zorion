@@ -66,7 +66,7 @@ Card details never reach Zorion. Checkout and the customer portal are Stripe's o
 - Support admins see masked emails and cannot change rules.
 - Suspending or deleting a host and every ads change need a second admin to approve, once there are two admins.
 - Every sign-in and change is written to an audit log.
-- Admins are created from the command line only.
+- The first admin is created in the browser with a one-time setup token, only while no admin exists; more admins are created from the command line.
 
 ## Payments
 
@@ -75,9 +75,9 @@ Card details never reach Zorion. Checkout and the customer portal are Stripe's o
 
 ## Known limits and open items
 
-- Rate limits are kept in the database. Add Cloudflare rate limiting rules in front for volume attacks (see SETUP.md).
+- Rate limits are kept in the database. Add Cloudflare rate limiting rules in front for volume attacks (see DEPLOYMENT.md, Extra protection).
 - A 4-character guest code is short by design. It is safe only together with the secret link and the limits above; do not reuse the pattern for anything more valuable than a meetup reply.
 - Travel times are estimates from straight-line distance unless routed times are switched on. The fair middle itself is always worked out from distance.
 - Browser tests cover the main flows against the local demo with made-up places. Real email, Stripe, OpenStreetMap and Google calls are only tested against fakes.
 - No independent security review or penetration test has been done. Do one before handling real users at scale.
-- The privacy and terms pages are drafts. They need a contact address and a legal review before launch (see SETUP.md).
+- The privacy and terms pages are drafts. They need a contact address and a legal review before launch (see DEPLOYMENT.md, After the first deploy).
