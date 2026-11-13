@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
-import { LIMITS, cleanName, schemas } from '@zorion/core';
+import { LIMITS, cleanName } from '@zorion/core';
+import * as schemas from '@zorion/core/schemas';
 import { one } from '@zorion/db';
 import { type App, type C, Fail, body, clearStrikes, clientKey, endSession, guardLock, requireUser, sendEmail, startSession, strike, toUser } from './core';
 import { hashPassword, hmac, newTotpSecret, otpauthUri, randomDigits, randomToken, safeEqual, seal, sha256, unseal, verifyPassword, verifyTotp } from './crypto';

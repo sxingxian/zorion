@@ -1,9 +1,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
-import {
-  LIMITS, type Voter, cleanName, countedCategoryVotes, defaultRsvpAfterDateSet, fairMiddle, isBlockedName, isOwnCategoryAllowed, leaders, maxCategoryVotes, maxShortlist,
-  rankPlaces, schemas, tally, travelMinutes, waitingForCategoryVotes,
-} from '@zorion/core';
+import { LIMITS, type Voter, cleanName, countedCategoryVotes, defaultRsvpAfterDateSet, fairMiddle, isBlockedName, isOwnCategoryAllowed, leaders, maxCategoryVotes, maxShortlist, rankPlaces, tally, travelMinutes, waitingForCategoryVotes } from '@zorion/core';
+import * as schemas from '@zorion/core/schemas';
 import { type Db, type Row, one } from '@zorion/db';
 import { type App, type C, type Deps, Fail, body, requireUser, setting } from './core';
 import { randomToken } from './crypto';

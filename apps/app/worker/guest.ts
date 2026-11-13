@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
-import { LIMITS, cleanName, guestSeesAds, isBlockedName, makeGuestCode, maxCategoryVotes, normaliseGuestCode, rsvpAfterPlaceVote, schemas, travelMinutes } from '@zorion/core';
+import { LIMITS, cleanName, guestSeesAds, isBlockedName, makeGuestCode, maxCategoryVotes, normaliseGuestCode, rsvpAfterPlaceVote, travelMinutes } from '@zorion/core';
+import * as schemas from '@zorion/core/schemas';
 import type { Row } from '@zorion/db';
 import { type App, type C, Fail, body, clearStrikes, clientKey, guardLock, putCookie, readCookie, setting, strike } from './core';
 import { hmac, randomToken, sha256 } from './crypto';

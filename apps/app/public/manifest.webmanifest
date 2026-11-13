@@ -1,0 +1,11 @@
+{
+  "name": "Zorion",
+  "short_name": "Zorion",
+  "description": "Plan a meetup your whole crew can walk to.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0B0B0D",
+  "theme_color": "#0B0B0D",
+  "icons": [{ "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }]
+}
