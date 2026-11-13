@@ -4,6 +4,7 @@
 create table users (
   id uuid primary key default gen_random_uuid(),
   email text not null unique check (email = lower(email)),
+  display_name text not null,
   password_hash text,
   totp_secret text,                      -- AES-GCM encrypted, never returned by the API
   totp_enabled boolean not null default false,
@@ -33,6 +34,7 @@ create table sessions (
   user_id uuid not null references users (id) on delete cascade,
   token_hash text not null unique,
   kind text not null default 'full' check (kind in ('full', 'pending_2fa')),
+  first_factor text check (first_factor in ('email', 'password', 'totp')),
   expires_at timestamptz not null,
   created_at timestamptz not null default now()
 );
@@ -122,8 +124,7 @@ create table participants (
   user_id uuid references users (id) on delete set null,
   claimed boolean not null default false,
   code_hash text,
-  device_hash text,
-  amend_until timestamptz,
+  amend_until timestamptz,                -- changing a choice needs a fresh code check
   rsvp text not null default 'none' check (rsvp in ('none', 'going', 'maybe', 'no')),
   rsvp_is_default boolean not null default false,
   no_date_works boolean not null default false,
@@ -136,6 +137,14 @@ create table participants (
 );
 create index participants_meetup on participants (meetup_id);
 create unique index participants_code on participants (meetup_id, code_hash) where code_hash is not null;
+
+-- Browsers a guest has joined or entered their code on. Only the hash of the cookie is kept.
+create table guest_devices (
+  device_hash text primary key,
+  participant_id uuid not null references participants (id) on delete cascade,
+  created_at timestamptz not null default now()
+);
+create index guest_devices_participant on guest_devices (participant_id);
 
 create table date_votes (
   participant_id uuid not null references participants (id) on delete cascade,

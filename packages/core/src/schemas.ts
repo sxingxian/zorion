@@ -15,7 +15,7 @@ export const guestTheme = z.enum(['pink', 'gold']);
 
 export const ballotItem = z.union([
   z.object({ key: z.string().regex(/^[a-z0-9_]{1,24}$/) }),
-  z.object({ own: z.object({ name: name(LIMITS.categoryName), icon: z.enum(OWN_ICONS) }) }),
+  z.object({ own: z.object({ name: name(LIMITS.categoryName), icon: z.enum(OWN_ICONS), save: z.boolean().default(true) }) }),
 ]);
 
 export const createMeetup = z
