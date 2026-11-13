@@ -67,28 +67,41 @@ export interface RankedPlace<C extends Candidate> {
   minutes: Record<string, number>;
 }
 
+/** A routed time for one person and one place, when a routing service has supplied it. */
+export type KnownTime = (personId: string, placeId: string) => number | null | undefined;
+
 /**
- * Places closest to everyone: shortest longest-trip first, then shortest average,
- * then best rating. Returns 5 to 8 when that many exist.
+ * Every candidate with its trip times, best first: shortest longest-trip, then shortest
+ * average, then best rating. Uses a routed time where one is known and the estimate otherwise.
  */
-export function rankPlaces<C extends Candidate>(
+export function scorePlaces<C extends Candidate>(
   candidates: readonly C[],
   people: ReadonlyArray<Point & { id: string }>,
   mode: TravelMode = 'walk',
-  shown: number = LIMITS.placesShownMax,
+  known?: KnownTime,
 ): RankedPlace<C>[] {
-  const cap = Math.min(Math.max(shown, LIMITS.placesShownMin), LIMITS.placesShownMax);
   return candidates
     .map((place) => {
       const minutes: Record<string, number> = {};
-      for (const p of people) minutes[p.id] = travelMinutes(p, place, mode);
+      for (const p of people) minutes[p.id] = known?.(p.id, place.id) ?? travelMinutes(p, place, mode);
       const all = Object.values(minutes);
       const longest = all.length ? Math.max(...all) : 0;
       const average = all.length ? all.reduce((s, m) => s + m, 0) / all.length : 0;
       return { place, longest, average, minutes };
     })
-    .sort((a, b) => a.longest - b.longest || a.average - b.average || (b.place.rating ?? 0) - (a.place.rating ?? 0))
-    .slice(0, cap);
+    .sort((a, b) => a.longest - b.longest || a.average - b.average || (b.place.rating ?? 0) - (a.place.rating ?? 0));
+}
+
+/** Places closest to everyone. Returns 5 to 8 when that many exist. */
+export function rankPlaces<C extends Candidate>(
+  candidates: readonly C[],
+  people: ReadonlyArray<Point & { id: string }>,
+  mode: TravelMode = 'walk',
+  shown: number = LIMITS.placesShownMax,
+  known?: KnownTime,
+): RankedPlace<C>[] {
+  const cap = Math.min(Math.max(shown, LIMITS.placesShownMin), LIMITS.placesShownMax);
+  return scorePlaces(candidates, people, mode, known).slice(0, cap);
 }
 
 export function isValidPoint(p: Point): boolean {

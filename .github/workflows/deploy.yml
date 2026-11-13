@@ -1,0 +1,57 @@
+name: Deploy
+
+# Run by hand from the Actions tab. Nothing deploys on its own.
+# Needs the repository secrets CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID and DATABASE_URL (see docs/SETUP.md).
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: What to deploy
+        type: choice
+        options: [both, app, site]
+        default: both
+      migrate:
+        description: Apply database migrations first
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: production
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Type checks, tests and builds
+        run: npm run check
+      - name: Apply database migrations
+        if: inputs.migrate
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: npm run migrate
+      - name: Deploy the app
+        if: inputs.target != 'site'
+        run: npx wrangler deploy
+        working-directory: apps/app
+      - name: Deploy the landing page and admin portal
+        if: inputs.target != 'app'
+        run: npx wrangler deploy
+        working-directory: apps/site

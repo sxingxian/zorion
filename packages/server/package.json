@@ -1,0 +1,7 @@
+{
+  "name": "@zorion/server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": { "./crypto": "./src/crypto.ts" }
+}

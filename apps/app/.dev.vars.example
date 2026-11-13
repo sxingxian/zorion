@@ -1,0 +1,7 @@
+# Copy to .dev.vars for local development. Never commit .dev.vars.
+ENVIRONMENT=development
+APP_ORIGIN=http://localhost:5173
+SITE_ORIGIN=http://localhost:5174
+DATABASE_URL=postgres://user:password@your-project.neon.tech/zorion?sslmode=require
+PEPPER=change-me-to-64-random-characters
+TOTP_KEY=base64-of-32-random-bytes

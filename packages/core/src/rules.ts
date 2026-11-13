@@ -13,6 +13,7 @@ export const LIMITS = {
   placesShownMax: 8,
   guestCodeLength: 4,
   guestCodeTries: 3,
+  guestCodeTriesPerMeetup: 20, // wrong codes across every device, per lock window
   guestCodeLockMinutes: 10,
   emailCodeMinutes: 10,
   emailCodeTries: 5,
