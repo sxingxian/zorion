@@ -17,7 +17,9 @@
     "check": "npm run typecheck && npm test && npm run build",
     "demo": "tsx scripts/demo.ts",
     "e2e": "playwright test -c e2e/playwright.config.ts",
-    "telegram:setup": "node scripts/telegram-setup.mjs"
+    "telegram:setup": "node scripts/telegram-setup.mjs",
+    "cloudflare:app": "npm run typecheck && npm test && npm run migrate -- --build && npm run build -w @zorion/app",
+    "cloudflare:site": "npm run typecheck && npm test && npm run migrate -- --build && npm run build -w @zorion/site"
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.5.16",

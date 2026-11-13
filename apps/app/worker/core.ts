@@ -9,7 +9,7 @@ export interface Env {
   APP_ORIGIN: string; // https://zorionapp.midnightpoetry.studio
   SITE_ORIGIN: string; // https://zorion.midnightpoetry.studio
   PEPPER: string; // long random secret for HMACs
-  TOTP_KEY: string; // 32 random bytes, base64
+  TOTP_KEY: string; // 32 random bytes in base64, or any random string of 32+ characters
   ENVIRONMENT?: string; // "production" or "development"
   RESEND_API_KEY?: string;
   EMAIL_FROM?: string;

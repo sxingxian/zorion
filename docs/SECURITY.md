@@ -23,7 +23,7 @@ Card details never reach Zorion. Checkout and the customer portal are Stripe's o
 - Built in the Worker with WebCrypto only. No third-party identity provider.
 - Email plus a 6-digit code, or email plus password, or an authenticator first. With two-step on, the last step must be a different kind of proof from the first.
 - Passwords: PBKDF2-SHA256, 100,000 rounds, per-user salt, keyed with a server-side pepper. 100,000 is the most Cloudflare Workers allow; the pepper means a stolen database alone cannot be cracked offline.
-- Authenticator keys are stored encrypted (AES-GCM). A used code cannot be used twice.
+- Authenticator keys are stored encrypted (AES-GCM) with a 256-bit key from `TOTP_KEY`: its 32 bytes when it is base64 of 32 bytes, otherwise the SHA-256 of the string, which must be at least 32 characters. A used code cannot be used twice.
 - Email codes, session tokens, recovery codes and guest codes are stored only as keyed hashes.
 - Sessions are random tokens in `HttpOnly`, `Secure`, `SameSite=Lax`, `__Host-` cookies.
 - Five wrong codes or passwords pause sign-in for that account and network.
@@ -72,6 +72,12 @@ Card details never reach Zorion. Checkout and the customer portal are Stripe's o
 
 - Stripe webhooks are verified by signature and timestamp, and each event is handled once.
 - A plan changes only on a verified webhook, never on what the browser says.
+
+## Releases
+
+- Cloudflare pulls each update to `main` from GitHub and builds it; nothing on GitHub can deploy or reach the database. GitHub holds no Cloudflare or Neon key, and its Actions only read the code.
+- The build holds `DATABASE_URL` as a build-only secret, so whoever can change `main` can change the live database. `main` should require a pull request and passing checks (DEPLOYMENT.md, How each update goes live).
+- Migrations run after the tests pass, on `main` only, each in a transaction under a lock.
 
 ## Known limits and open items
 
