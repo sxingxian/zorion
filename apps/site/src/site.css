@@ -24,9 +24,18 @@ button, input, select { font: inherit; color: inherit; }
 .hero .card { position: relative; z-index: 2; margin: 0 0 clamp(24px, 6vh, 64px); max-width: 640px; background: #fff; border-radius: 32px; padding: clamp(24px, 4vw, 44px); display: flex; flex-direction: column; gap: 18px; box-shadow: 0 30px 80px rgba(11, 11, 13, 0.14); }
 .hero h1 { font-size: clamp(44px, 8vw, 92px); }
 .hero p { font-size: clamp(17px, 2vw, 20px); color: var(--muted); max-width: 46ch; }
-.hero .walker { position: absolute; z-index: 1; right: 8%; bottom: 18%; }
+.hero .anchor { position: absolute; z-index: 1; right: 8%; bottom: 18%; }
 .hero .walker svg { display: block; width: clamp(140px, 16vw, 220px); height: auto; }
-@media (max-width: 720px) { .hero .walker { top: 92px; bottom: auto; right: 6%; } }
+@media (max-width: 720px) { .hero .anchor { top: 92px; bottom: auto; right: 6%; } }
+/* The 3D city. It fades in over the drawn map once its first frame is ready. */
+.hero .stage { position: absolute; inset: 0; opacity: 0; transition: opacity 0.9s ease; }
+.hero .stage canvas { display: block; width: 100%; height: 100%; }
+.hero.is3d .stage { opacity: 1; }
+.hero.is3d svg.city { visibility: hidden; }
+/* In 3D the mascot stands on the fair middle: the scene moves the anchor, the lift puts the feet on the spot. */
+.hero.is3d .anchor { left: 0; top: 0; right: auto; bottom: auto; will-change: transform; }
+.hero.is3d .lift { transform: translate(-50%, -84%); }
+.hero.is3d .walker svg { width: clamp(96px, 11vw, 150px); }
 .row { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
 .scene { position: relative; padding: clamp(72px, 12vw, 150px) 0; }
 .scene .wrap { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr)); gap: clamp(28px, 6vw, 80px); align-items: center; }

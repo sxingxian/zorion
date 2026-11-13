@@ -83,7 +83,6 @@ export function Landing() {
       gsap.ticker.lagSmoothing(0);
       const ctx = gsap.context(() => {
         gsap.from('.hero .card > *', { y: 30, opacity: 0, duration: 0.8, stagger: 0.08, ease: 'power3.out' });
-        gsap.to('.hero .walker', { xPercent: -40, yPercent: 20, ease: 'none', scrollTrigger: { trigger: '.hero', start: 'top top', end: 'bottom top', scrub: true } });
         gsap.utils.toArray<HTMLElement>('.reveal').forEach((el) => gsap.to(el, { opacity: 1, y: 0, duration: 0.9, ease: 'power3.out', scrollTrigger: { trigger: el, start: 'top 82%' } }));
         gsap.utils.toArray<HTMLElement>('.scene .art').forEach((el) => gsap.fromTo(el, { scale: 0.92 }, { scale: 1, ease: 'none', scrollTrigger: { trigger: el, start: 'top bottom', end: 'center center', scrub: true } }));
         gsap.fromTo('.closing .giant', { yPercent: 30 }, { yPercent: 0, ease: 'none', scrollTrigger: { trigger: '.closing', start: 'top bottom', end: 'bottom bottom', scrub: true } });
@@ -97,6 +96,33 @@ export function Landing() {
     return () => {
       live = false;
       cleanup();
+    };
+  }, []);
+
+  // The hero becomes a small 3D city once the page is idle. The drawn map underneath stays as the
+  // fallback: for reduced motion, for devices without WebGL, and until the first frame is on screen.
+  const hero = useRef<HTMLElement>(null);
+  const stage = useRef<HTMLDivElement>(null);
+  const anchor = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    let webgl = false;
+    try { const c = document.createElement('canvas'); webgl = !!(c.getContext('webgl2') || c.getContext('webgl')); } catch { webgl = false; }
+    if (!webgl) return;
+    let stop = () => {};
+    let live = true;
+    const begin = () => import('./hero3d').then(({ mountHero }) => {
+      if (!live || !stage.current) return;
+      const el = hero.current;
+      try { stop = mountHero(stage.current, anchor.current, () => el?.classList.add('is3d')); } catch { el?.classList.remove('is3d'); }
+    }).catch(() => {});
+    // Wait for the page to settle first, so the scene never competes with the headline for the first paint.
+    const timer = window.setTimeout(begin, 350);
+    return () => {
+      live = false;
+      clearTimeout(timer);
+      stop();
+      hero.current?.classList.remove('is3d');
     };
   }, []);
 
@@ -118,9 +144,10 @@ export function Landing() {
     <div className="land" ref={root}>
       <header className="top"><div className="wrap"><a className="brandmark" href="/"><Head />Zorion</a><a className="cta dark" style={{ minHeight: 44, fontSize: 15 }} href={app}>Open the app</a></div></header>
 
-      <section className="hero">
+      <section className="hero" ref={hero}>
         <City>{HERO_CREW.map(([x, y, l]) => <Pin key={l} x={x} y={y} letter={l} />)}</City>
-        <div className="walker bob"><Pig size={220} label="Zorion the black pig in a pink chef hat" /></div>
+        <div className="stage" ref={stage} />
+        <div className="anchor" ref={anchor}><div className="lift"><div className="walker bob"><Pig size={220} label="Zorion the black pig in a pink chef hat" /></div></div></div>
         <div className="wrap" style={{ width: '100%' }}>
           <div className="card">
             <h1 className="display">Good fortune, fair walk.</h1>
