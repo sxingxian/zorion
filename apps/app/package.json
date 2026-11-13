@@ -14,7 +14,9 @@
     "@fontsource-variable/rubik": "^5.3.0",
     "@zorion/core": "*",
     "@zorion/db": "*",
+    "@zorion/server": "*",
     "hono": "^4.13.18",
+    "qrcode-generator": "^2.0.4",
     "react": "^19.3.1",
     "react-dom": "^19.3.1"
   },

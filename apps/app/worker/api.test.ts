@@ -168,6 +168,19 @@ describe('a fixed-date meetup, start to finish', () => {
     await (deps.db as any).query('delete from throttles');
   });
 
+  it('pauses code entry for the whole meetup when wrong codes keep coming from different networks', async () => {
+    const guess = (ip: string) => app.request(`/api/g/${token}/code`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-zorion': '1', origin: env.APP_ORIGIN, 'cf-connecting-ip': ip },
+      body: JSON.stringify({ code: '2222' }),
+    });
+    const statuses = [];
+    for (let i = 0; i < 21; i++) statuses.push((await guess(`203.0.113.${i}`)).status);
+    expect(statuses.slice(0, 20).every((s) => s === 401)).toBe(true);
+    expect(statuses[20]).toBe(429);
+    await (deps.db as any).query('delete from throttles');
+  });
+
   it('a new browser needs only the code', async () => {
     const phone2 = browser(app);
     const r = await phone2('POST', `/api/g/${token}/code`, { code: priyaCode.toLowerCase() });
@@ -217,6 +230,10 @@ describe('a fixed-date meetup, start to finish', () => {
     expect((await priya('POST', `/api/g/${token}/rsvp`, { rsvp: 'no' })).status).toBe(200);
     const hostView = (await h('GET', `/api/meetups/${id}`)).body.meetup;
     expect(hostView.unseenChanges).toBe(1);
+    // Someone who can't go is no longer counted among the people a vote is waiting for.
+    const after = (await priya('GET', `/api/g/${token}`)).body.meetup;
+    expect(after.progress.total).toBe(hostView.people.filter((p: any) => p.rsvp !== 'no').length);
+    expect(after.progress.total).toBeLessThan(hostView.people.length);
     expect((await h('GET', `/api/meetups/${id}/changes`)).body.changes[0].detail).toBe("Reply: going to can't go");
   });
 

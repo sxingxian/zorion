@@ -1,7 +1,31 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { LIMITS } from '@zorion/core';
 import { type Me, type ModeChoice, api, navigate, useAction, useSession } from './lib';
 import { Btn, Check, Chip, Codes, Facts, Field, Header, Mascot, Note, Oops, Seg, Toast } from './ui';
+
+/** The sign-in key as a QR code. Drawn on this device, so the key is never sent to an image service. */
+function QrCode({ text }: { text: string }) {
+  const [cells, setCells] = useState<{ n: number; d: string } | null>(null);
+  useEffect(() => {
+    let live = true;
+    import('qrcode-generator').then(({ default: qrcode }) => {
+      const qr = qrcode(0, 'M');
+      qr.addData(text);
+      qr.make();
+      const n = qr.getModuleCount();
+      let d = '';
+      for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) if (qr.isDark(r, c)) d += `M${c} ${r}h1v1h-1z`;
+      if (live) setCells({ n, d });
+    });
+    return () => { live = false; };
+  }, [text]);
+  if (!cells) return <div style={{ width: 196, height: 196, margin: '0 auto' }} />;
+  return (
+    <svg viewBox={`-4 -4 ${cells.n + 8} ${cells.n + 8}`} width={196} height={196} role="img" aria-label="QR code for your authenticator app" shapeRendering="crispEdges" style={{ margin: '0 auto', borderRadius: 16, background: '#fff', flex: 'none' }}>
+      <path d={cells.d} fill="#0b0b0d" />
+    </svg>
+  );
+}
 
 export function Account({ me, modeChoice, setMode }: { me: Me; modeChoice: ModeChoice; setMode: (m: ModeChoice) => void }) {
   const { refresh } = useSession();
@@ -66,7 +90,7 @@ export function Account({ me, modeChoice, setMode }: { me: Me; modeChoice: ModeC
       <>
         <Header title="Two-step verification" sub="Off" onBack={() => go('main')} />
         <main className="screen" style={{ gap: 14 }}>
-          {!me.has_password && <Note>Set a password first. Two-step verification pairs your authenticator with a password or an emailed code.</Note>}
+          <Note>Two-step verification pairs your authenticator with a second, different proof: your emailed code or your password.</Note>
           {!setup ? (
             <>
               <p className="small" style={{ fontSize: 14 }}>You will need an authenticator app. After this, signing in always asks for two different proofs.</p>
@@ -76,6 +100,8 @@ export function Account({ me, modeChoice, setMode }: { me: Me; modeChoice: ModeC
           ) : (
             <>
               <h2 className="display h1">Add Zorion to your app</h2>
+              <QrCode text={setup.uri} />
+              <p className="small center">Scan this with your authenticator app, or use the button on this phone.</p>
               <a className="btn second" href={setup.uri}>Open my authenticator app</a>
               <Facts rows={[['Key', <span style={{ fontFamily: 'monospace', wordBreak: 'break-all' }}>{setup.secret}</span>]]} />
               <p className="small">Or type the key into the app by hand. Then enter the 6-digit code it shows.</p>

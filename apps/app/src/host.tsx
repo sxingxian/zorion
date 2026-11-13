@@ -175,7 +175,7 @@ export function HostPane({ m }: { m: M }) {
   ];
   return (
     <>
-      <CrewMap label="Map of the crew and the fair middle" people={people} middle={m.middle} target={chosen} places={m.places.filter((p: M) => p.shortlisted || m.status === 'places').map((p: M) => ({ lat: p.lat, lng: p.lng, label: p.name }))} routes={!!chosen} />
+      <CrewMap label="Map of the crew and the fair middle" people={people} middle={m.middle} target={chosen} places={m.places.filter((p: M) => !chosen && (p.shortlisted || m.status === 'places')).map((p: M) => ({ lat: p.lat, lng: p.lng, label: p.name }))} routes={!!chosen} />
       <div className="glance"><div className="display h2">At a glance</div><Facts rows={facts} /></div>
     </>
   );
@@ -408,7 +408,7 @@ export function HostMeetup({ me, id, sub, pid, m, setM }: { me: Me; id: string; 
       <>
         <Header title={m.name} sub="Final vote · link shared again" back="/" step={3} />
         <main className="screen">
-          <div className="row between" style={{ alignItems: 'flex-end' }}><div className="stack" style={{ gap: 2 }}><h2 className="display h1">Final vote</h2><p className="small">You voted first. A maybe who votes becomes going.</p></div><Chip>{voted} of {m.people.length} voted</Chip></div>
+          <div className="row between" style={{ alignItems: 'flex-end' }}><div className="stack" style={{ gap: 2 }}><h2 className="display h1">Final vote</h2><p className="small">You voted first. A maybe who votes becomes going.</p></div><Chip>{voted} of {m.people.filter((p: M) => p.rsvp !== 'no').length} voted</Chip></div>
           {linkCard}
           <div className="stack" role="radiogroup" aria-label="Place to lock in">{short.map((p: M) => <Pick key={p.id} radio on={sel === p.id} onClick={() => setPick(p.id)} title={p.name} meta={`${p.votes} ${p.votes === 1 ? 'vote' : 'votes'} · longest trip ${p.longest} min`} />)}</div>
           {tie && <Note>It is a tie. Pick the place to lock in.</Note>}

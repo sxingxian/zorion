@@ -80,7 +80,7 @@ function guestView(c: C, L: Loaded, who: Row | null, dateChange: { replies: stri
     dates: L.dates.map((d) => ({ id: d.id, startsAt: new Date(d.starts_at).toISOString() })),
     // Names only, so a guest can find themselves. Nobody's location or reply detail is exposed.
     people: L.people.filter((p) => !p.is_host).map((p) => ({ id: p.id, name: p.name, claimed: p.claimed })),
-    progress: { total: L.people.length, dateAnswered: s.dateAnswered, categoryVoted: L.people.filter((p) => p.categories.length > 0).length, placeVoted: L.people.filter((p) => p.place).length, going: s.going },
+    progress: { total: L.people.filter((p) => p.rsvp !== 'no').length, dateAnswered: s.dateAnswered, categoryVoted: L.people.filter((p) => p.categories.length > 0).length, placeVoted: L.people.filter((p) => p.place).length, going: s.going },
     winner,
     places: visible.map((p) => ({
       id: p.id, name: p.name, address: p.address, rating: p.rating, openNow: p.open_now,
@@ -154,12 +154,16 @@ guest.post('/:token/join', async (c) => {
 async function checkCode(c: C, L: Loaded, raw: string): Promise<Row> {
   const { db } = c.get('deps');
   const key = `guest-code:${L.m.id}:${await clientKey(c)}`;
+  // A second, meetup-wide limit: a guesser who keeps changing network still runs into it.
+  const allKey = `guest-code-all:${L.m.id}`;
   await guardLock(db, key);
+  await guardLock(db, allKey);
   const code = normaliseGuestCode(raw);
   const hash = code ? await codeHash(c, L, code) : '';
   const p = code ? L.people.find((x) => x.code_hash === hash && !x.is_host) : undefined;
   if (!p) {
     const locked = await strike(db, key, LIMITS.guestCodeTries, LIMITS.guestCodeLockMinutes, LIMITS.guestCodeLockMinutes);
+    await strike(db, allKey, LIMITS.guestCodeTriesPerMeetup, LIMITS.guestCodeLockMinutes, LIMITS.guestCodeLockMinutes);
     throw new Fail(locked ? 429 : 401, locked ? 'locked' : 'wrong', locked ? 'Three wrong tries. This link is paused on your device for 10 minutes.' : 'That code did not match.');
   }
   await clearStrikes(db, key);

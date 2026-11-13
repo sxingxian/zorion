@@ -14,11 +14,13 @@
     "test": "vitest run",
     "build": "npm run build -w @zorion/app && npm run build -w @zorion/site",
     "migrate": "node packages/db/migrate.mjs",
-    "check": "npm run typecheck && npm test && npm run build"
+    "check": "npm run typecheck && npm test && npm run build",
+    "demo": "tsx scripts/demo.ts"
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.5.16",
     "@types/node": "^26.6.6",
+    "tsx": "^4.23.15",
     "typescript": "^7.0.2",
     "vitest": "^5.1.0"
   }
