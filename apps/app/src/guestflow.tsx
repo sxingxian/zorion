@@ -80,6 +80,7 @@ export function GuestFlow({ token, m, setM }: { token: string; m: M; setM: (m: M
           <Btn kind="text" onClick={() => setView('code')}>Joined before? Enter your code</Btn>
           <Btn busy={busy} disabled={!pickId && !name.trim()} onClick={() => run(async () => { const r = await api('POST', `/g/${token}/join`, pickId ? { participantId: pickId } : { name }); setNewCode(r.code); setPickId(''); setM(r.meetup); })}>{pickId ? `I am ${free.find((p: M) => p.id === pickId)?.name}` : name.trim() ? `Join as ${name.trim()}` : 'Choose your name'}</Btn>
           <a className="btn text" href="/sign-in">Have a Zorion account? Sign in</a>
+          <p className="small center"><a href="/api/legal/privacy" target="_blank" rel="noopener">How Zorion handles your data</a> · <a href="/api/legal/terms" target="_blank" rel="noopener">Terms</a></p>
         </div>
       </main>
     );

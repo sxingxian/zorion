@@ -114,7 +114,7 @@ export function Codes({ length, value, onChange, big, readOnly, digits = true, l
 export function Pick({ on, onClick, title, meta, lead, right, radio, disabled }: { on: boolean; onClick?: () => void; title: ReactNode; meta?: ReactNode; lead?: ReactNode; right?: ReactNode; radio?: boolean; disabled?: boolean }) {
   const aria = radio ? { role: 'radio' as const, 'aria-checked': on } : { 'aria-pressed': on };
   return (
-    <button className="pick rise" {...aria} onClick={onClick} disabled={disabled}>
+    <button type="button" className="pick rise" {...aria} onClick={onClick} disabled={disabled}>
       {lead}
       <span className="grow stack" style={{ gap: 0 }}>
         <strong>{title}</strong>

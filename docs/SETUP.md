@@ -111,12 +111,28 @@ OpenStreetMap is the default and needs no key. It uses the public Overpass servi
 
 To use Google: enable **Places API (New)** in Google Cloud, create a key restricted to that API, store it as `GOOGLE_PLACES_KEY`, then choose Google under Admin → Categories & rules. Google bills per search after its free monthly allowance, so set a budget alert.
 
+### Typed starting places
+
+Guests and hosts can type a station, street or postcode instead of sharing GPS. The lookup follows the places setting: OpenStreetMap's Nominatim by default, Google when Google is chosen. The public Nominatim service allows light use only (about one lookup a second in total), so for real traffic choose Google or set `NOMINATIM_URL` to your own server. `OVERPASS_URL` does the same for the places search.
+
+### Routed trip times
+
+By default Zorion estimates trip times from straight-line distance and nothing leaves Zorion. To get real walking, cycling and transit times, enable **Routes API** in Google Cloud for the same key (or store a separate one as `GOOGLE_ROUTES_KEY`), then choose Google routes under Admin → Categories & rules. Each starting point is then sent to Google with no name attached, and Google bills per origin-destination pair, so set a budget alert. If a call fails, Zorion falls back to its estimate.
+
 ## 9. Ads
 
 - Sponsored slots inside the app are managed under Admin → Sponsored & ads. They are first-party: no ad network sees the app.
 - AdSense runs on the landing page only. Enter the publisher id in the admin portal, and add an `ads.txt` file to `apps/site/public/` with the line Google gives you.
 
-## 10. Recommended Cloudflare settings
+## 10. Legal pages
+
+`/privacy` and `/terms` on the landing site are drafts written from what the code does. Before launch:
+
+1. Set `CONTACT_EMAIL` in `apps/site/wrangler.jsonc`. The pages show it as the contact address.
+2. Have both pages reviewed, and add what only you can decide: the legal name of the business, governing law, and your refund policy.
+3. Keep them true. If you switch on routed trip times, AdSense, or a new provider, check the privacy page still describes it.
+
+## 11. Recommended Cloudflare settings
 
 - A rate limiting rule on `/api/auth/*`, `/api/g/*` and `/admin/api/*` as a second layer in front of the limits built into the app.
 - Cloudflare Access in front of `/admin*` if you want admins to pass your identity provider before they even see the sign-in page.
@@ -132,3 +148,13 @@ npm run dev -w @zorion/site   # http://localhost:5174
 ```
 
 In development, sign-in codes are available at `/api/dev/outbox` instead of being emailed. That address returns "not found" in production.
+
+## Tests
+
+```
+npm run check                                   # type checks, unit and API tests, builds
+npx playwright install chromium                 # once
+npm run e2e                                     # main flows in a real browser, against the local demo
+```
+
+To use an installed Chrome instead of Playwright's download: `E2E_CHROME=/path/to/chrome npm run e2e`.

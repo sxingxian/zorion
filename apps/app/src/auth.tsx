@@ -103,6 +103,7 @@ export function SignIn() {
         </>
       )}
       <Note ok>Joining a friend's meetup? You don't need an account. Just open their link.</Note>
+      <p className="small center">By continuing you agree to the <a href="/api/legal/terms" target="_blank" rel="noopener">terms</a> and <a href="/api/legal/privacy" target="_blank" rel="noopener">privacy notice</a>.</p>
     </main>
   );
 }

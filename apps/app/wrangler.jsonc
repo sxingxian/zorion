@@ -19,4 +19,5 @@
   }
   // Secrets (set with `wrangler secret put`): DATABASE_URL, PEPPER, TOTP_KEY, RESEND_API_KEY, EMAIL_FROM,
   // GOOGLE_PLACES_KEY, STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, STRIPE_PRICE_MONTHLY, STRIPE_PRICE_YEARLY
+  // Optional: GOOGLE_ROUTES_KEY (routed trip times; falls back to GOOGLE_PLACES_KEY), OVERPASS_URL and NOMINATIM_URL (your own map servers)
 }

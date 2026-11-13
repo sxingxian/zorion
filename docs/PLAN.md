@@ -15,11 +15,16 @@ The product rules and screen designs live in the Zorion project on claude.ai ("Z
 - Email through Resend.
 - Two Workers: one for the app, one for the landing page and admin portal.
 
-## Not built yet
+## Added after the first version
 
 - Typing a starting place instead of sharing GPS.
-- Routed travel times (transit and cycling are offered to Pro but times are estimated).
-- Emails other than sign-in codes (for example telling guests the place is set). The host shares the link.
-- Privacy policy and terms pages.
-- Automated browser tests.
+- Routed trip times through Google's Routes API, switched on in the admin portal. The estimate is the default and the fallback.
+- A three.js hero on the landing page, with the drawn map as fallback.
+- Privacy and terms pages (drafts for review).
+- Browser tests for the main flows (`npm run e2e`).
+
+## Not built yet
+
+- Emails other than sign-in codes. Guests have no email address, so the host shares the link.
+- A free routing option. Routed times need Google; without it, times are estimates.
 - Pro prices and group sizes are placeholders: prices come from Stripe, group sizes from the admin portal (8 free, 30 Pro by default).

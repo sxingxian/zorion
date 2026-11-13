@@ -310,6 +310,30 @@ describe('housekeeping', () => {
     expect((await db.query('select count(*)::int as n from participants where lat is not null'))[0]!.n).toBe(0);
   });
 
+  it('also ends a meetup that never got a date, 30 days after its last change', async () => {
+    const db = deps.db!;
+    const h2 = browser(app);
+    await signIn(h2, 'nodate@example.com');
+    const made = await h2('POST', '/api/meetups', { name: 'No date yet', timeZone: 'Asia/Singapore', startsAt: null, dateOptions: ['2027-01-10T12:00:00.000Z', '2027-01-11T12:00:00.000Z'], invitees: ['Zed'], ballot: [{ key: 'pizza' }, { key: 'ramen' }] });
+    if (made.status !== 200) throw new Error(JSON.stringify(made.body));
+    expect(made.status).toBe(200);
+    const mid = made.body.meetup.id;
+    await h2('POST', `/api/meetups/${mid}/location`, { lat: 1.3, lng: 103.84 });
+    await cleanUp(db);
+    expect((await db.query('select status from meetups where id = $1', [mid]))[0]!.status).not.toBe('ended');
+    await db.query("update meetups set updated_at = now() - interval '31 days' where id = $1", [mid]);
+    await cleanUp(db);
+    expect((await db.query('select status from meetups where id = $1', [mid]))[0]!.status).toBe('ended');
+    expect((await db.query('select count(*)::int as n from participants where meetup_id = $1 and lat is not null', [mid]))[0]!.n).toBe(0);
+  });
+
+  it('sends legal links to the landing site', async () => {
+    const res = await app.request('/api/legal/privacy');
+    expect(res.status).toBe(302);
+    expect(res.headers.get('location')).toBe('http://localhost:5174/privacy');
+    expect((await app.request('/api/legal/https:%2F%2Fevil.example')).status).toBe(404);
+  });
+
   it('checks Stripe signatures and their age', async () => {
     const now = new Date('2026-11-13T00:00:00Z');
     const t = Math.floor(now.getTime() / 1000);

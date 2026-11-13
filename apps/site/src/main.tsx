@@ -7,6 +7,8 @@ import { Landing } from './landing';
 
 // The admin portal is a separate chunk, so visitors to the landing page never download it.
 const AdminApp = lazy(() => import('./admin'));
+const Privacy = lazy(() => import('./legal').then((m) => ({ default: m.Privacy })));
+const Terms = lazy(() => import('./legal').then((m) => ({ default: m.Terms })));
 
 function Root() {
   const [path, setPath] = useState(() => window.location.pathname.replace(/\/+$/, '') || '/');
@@ -23,6 +25,8 @@ function Root() {
   if (path === '/admin' || path.startsWith('/admin/')) {
     return <Suspense fallback={<div className="signin" />}><AdminApp path={path} go={go} /></Suspense>;
   }
+  if (path === '/privacy') return <Suspense fallback={null}><Privacy /></Suspense>;
+  if (path === '/terms') return <Suspense fallback={null}><Terms /></Suspense>;
   return <Landing />;
 }
 

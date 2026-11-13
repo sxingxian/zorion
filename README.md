@@ -13,6 +13,7 @@ Plan a meetup your whole crew can walk to. The host puts food on the ballot, the
 npm install
 npm run check      # type checks, tests and builds
 npm run demo       # both sites locally, in-memory database, no accounts needed (run a build first)
+npm run e2e        # browser tests against the demo (run a build first)
 ```
 
 - [docs/SETUP.md](docs/SETUP.md): Cloudflare, Neon, Resend, Stripe and the first admin, step by step

@@ -116,3 +116,19 @@ button, input, select { font: inherit; color: inherit; }
 /* Keep form fields inside their card on narrow screens. */
 .adm label, .adm .input { min-width: 0; max-width: 100%; }
 .adm td { overflow-wrap: anywhere; }
+
+/* Privacy and terms: plain reading pages. */
+.land footer nav, .legal nav { display: flex; gap: 18px; }
+.land footer a, .legal a { color: inherit; text-decoration: underline; text-underline-offset: 3px; }
+.legal { max-width: 760px; margin: 0 auto; padding: 0 24px; color: var(--ink); }
+.legal > header { display: flex; justify-content: space-between; align-items: center; padding: 22px 0; }
+.legal > header .brandmark { text-decoration: none; }
+.legal h1 { font-size: clamp(40px, 7vw, 64px); margin: 28px 0 14px; }
+.legal .lede { font-size: clamp(18px, 2.4vw, 21px); line-height: 1.5; }
+.legal .meta { color: var(--muted); font-size: 14px; margin: 14px 0 0; }
+.legal h2 { font-family: 'Bricolage Grotesque Variable', system-ui, sans-serif; font-size: 26px; letter-spacing: -0.02em; margin: 44px 0 10px; }
+.legal h3 { font-size: 17px; margin: 20px 0 6px; }
+.legal p, .legal li { font-size: 17px; line-height: 1.6; }
+.legal p { margin: 0 0 12px; }
+.legal ul { margin: 0 0 12px; padding-left: 22px; display: grid; gap: 8px; }
+.legal > footer { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; padding: 48px 0 40px; color: var(--muted); font-size: 14px; }

@@ -192,7 +192,7 @@ export function Landing() {
         <div className="wrap"><h2 className="display" style={{ fontSize: 'clamp(32px, 5vw, 56px)' }}>Your crew is waiting.</h2><div className="row" style={{ justifyContent: 'center', marginTop: 20 }}><a className="cta" href={app}>Host a meetup, free</a></div></div>
         <div className="giant" aria-hidden="true">Zorion</div>
       </section>
-      <footer><span>© {new Date().getFullYear()} Midnight Poetry Studio</span><span>Guests never need an account. Locations are used once and deleted when the meetup ends.</span></footer>
+      <footer><span>© {new Date().getFullYear()} Midnight Poetry Studio</span><span>Guests never need an account. Locations are used once and deleted when the meetup ends.</span><nav aria-label="Legal"><a href="/privacy">Privacy</a><a href="/terms">Terms</a></nav></footer>
 
       {ads?.consent && consent === null && (
         <div className="consent" role="dialog" aria-label="Advertising choice">

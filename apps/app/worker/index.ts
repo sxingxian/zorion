@@ -44,6 +44,11 @@ export function createApp(overrides: Partial<Deps> = {}) {
   // Development only: lets a developer read the sign-in code without an email provider.
   app.get('/api/dev/outbox', (c) => (isProd(c.get('deps').env) ? c.json({ error: 'not_found' }, 404) : c.json({ outbox: c.get('deps').outbox })));
 
+  // The privacy and terms pages live on the landing site. The app links here so it never hard-codes that address.
+  app.get('/api/legal/:page', (c) => {
+    const page = c.req.param('page');
+    return page === 'privacy' || page === 'terms' ? c.redirect(`${c.get('deps').env.SITE_ORIGIN}/${page}`, 302) : c.json({ error: 'not_found', message: 'Not found.' }, 404);
+  });
   app.all('/api/*', (c) => c.json({ error: 'not_found', message: 'Not found.' }, 404));
 
   app.onError((err, c) => {

@@ -19,8 +19,12 @@ const emailKey = async (c: C, email: string) => `signin:${await sha256(email)}`;
 async function issueEmailCode(c: C, email: string): Promise<void> {
   const deps = c.get('deps');
   const key = `${await emailKey(c, email)}:send`;
+  // Also per network, so one visitor cannot make Zorion send codes to a long list of addresses.
+  const netKey = `signin-net:${await clientKey(c)}`;
   await guardLock(deps.db, key);
+  await guardLock(deps.db, netKey);
   await strike(deps.db, key, 5, 15, LIMITS.signInLockMinutes); // at most 5 emails per 15 minutes
+  await strike(deps.db, netKey, 20, 15, 15); // and 20 per network
   const code = randomDigits(6);
   await deps.db.query('update email_codes set consumed_at = now() where email = $1 and consumed_at is null', [email]);
   await deps.db.query('insert into email_codes (email, code_hash, expires_at) values ($1, $2, now() + make_interval(mins => $3::int))', [email, await codeHash(c, email, code), LIMITS.emailCodeMinutes]);

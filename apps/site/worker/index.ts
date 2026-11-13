@@ -12,6 +12,7 @@ export interface Env {
   PEPPER: string;
   TOTP_KEY: string;
   ENVIRONMENT?: string;
+  CONTACT_EMAIL?: string; // shown on the privacy and terms pages
 }
 interface Deps { db: Db; env: Env; now(): Date }
 interface Admin { id: string; email: string; role: 'super' | 'support' }
@@ -103,7 +104,8 @@ export function createAdmin(overrides: Partial<Deps> = {}) {
     const { db, env } = c.get('deps');
     const on = await one(db, "select 1 from ad_placements where key = 'landing' and enabled");
     const adsense = (await one(db, "select value from settings where key = 'adsense'"))?.value ?? {};
-    return c.json({ appUrl: env.APP_ORIGIN, adsense: on && adsense.publisherId ? { publisherId: adsense.publisherId, consent: adsense.consent !== false } : null });
+    const contactEmail = env.CONTACT_EMAIL && /^[^\s@<>"']+@[^\s@<>"']+\.[^\s@<>"']+$/.test(env.CONTACT_EMAIL) ? env.CONTACT_EMAIL : null;
+    return c.json({ appUrl: env.APP_ORIGIN, contactEmail, adsense: on && adsense.publisherId ? { publisherId: adsense.publisherId, consent: adsense.consent !== false } : null });
   });
 
   app.use('/admin/api/*', async (c, next) => {

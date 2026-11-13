@@ -13,7 +13,9 @@
   "vars": {
     "ENVIRONMENT": "production",
     "APP_ORIGIN": "https://zorionapp.midnightpoetry.studio",
-    "SITE_ORIGIN": "https://zorion.midnightpoetry.studio"
+    "SITE_ORIGIN": "https://zorion.midnightpoetry.studio",
+    // Shown on the privacy and terms pages. Set it before launch.
+    "CONTACT_EMAIL": ""
   }
   // Secrets (set with `wrangler secret put`): DATABASE_URL, PEPPER, TOTP_KEY (the same values as zorion-app)
 }

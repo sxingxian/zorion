@@ -45,7 +45,8 @@ const outbox = new Proxy([] as Array<{ to: string; subject: string; text: string
 const app = createApp({ db, env, fetch: fakePlaces, outbox });
 const admin = createAdmin({ db, env });
 
-const adminSecret = newTotpSecret();
+// The browser tests pass a fixed key so they can work out the admin's authenticator code.
+const adminSecret = process.env.DEMO_ADMIN_KEY || newTotpSecret();
 await db.query('insert into admins (email, password_hash, totp_secret, totp_enabled, role) values ($1, $2, $3, true, $4)', ['admin@example.com', await hashPassword('demo-admin-password', env.PEPPER), await seal(adminSecret, env.TOTP_KEY), 'super']);
 
 function serve(port: number, root: string, isApi: (path: string) => boolean, api: { fetch(req: Request): Response | Promise<Response> }) {

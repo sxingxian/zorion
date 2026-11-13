@@ -13,8 +13,10 @@ Card details never reach Zorion. Checkout and the customer portal are Stripe's o
 ## Locations
 
 - A person's coordinates are never sent to anyone else, including the host. Other screens get travel minutes only, and the drawn map places people on a ring by travel time.
-- Maps are drawn in the app. No map provider or ad network receives a position. The places search receives only the middle point.
-- Coordinates are erased when the meetup ends (24 hours after its start), and the meetup itself is deleted 90 days after that.
+- Maps are drawn in the app. No ad network ever receives a position. The places search receives only the middle point.
+- Typing a place instead of sharing GPS: the typed words are looked up from Zorion's server, on a button press, so the map service sees neither the person's network address nor their name. Lookups are limited to 15 per network per ten minutes.
+- Routed trip times are off by default. When an admin switches them on, starting points and candidate places are sent to Google's Routes API with no names attached. This is the one case where a position leaves Zorion, and the privacy page says so.
+- Coordinates are erased when the meetup ends: 24 hours after its start, or 30 days after its last change if it never got a date. The meetup itself is deleted 90 days after that.
 
 ## Host sign-in
 
@@ -25,6 +27,7 @@ Card details never reach Zorion. Checkout and the customer portal are Stripe's o
 - Email codes, session tokens, recovery codes and guest codes are stored only as keyed hashes.
 - Sessions are random tokens in `HttpOnly`, `Secure`, `SameSite=Lax`, `__Host-` cookies.
 - Five wrong codes or passwords pause sign-in for that account and network.
+- Sign-in emails are limited to 5 per address and 20 per network in 15 minutes, so the form cannot be used to flood inboxes.
 - Asking for a sign-in code answers the same way whether or not the email has an account.
 
 ## Guests
@@ -58,7 +61,7 @@ Card details never reach Zorion. Checkout and the customer portal are Stripe's o
 
 - Rate limits are kept in the database. Add Cloudflare rate limiting rules in front for volume attacks (see SETUP.md).
 - A 4-character guest code is short by design. It is safe only together with the secret link and the limits above; do not reuse the pattern for anything more valuable than a meetup reply.
-- Travel times are estimates from straight-line distance, not routed.
-- The flows were exercised by hand in a headless browser. There is no automated browser test in CI yet; the API has automated tests.
+- Travel times are estimates from straight-line distance unless routed times are switched on. The fair middle itself is always worked out from distance.
+- Browser tests cover the main flows against the local demo with made-up places. Real email, Stripe, OpenStreetMap and Google calls are only tested against fakes.
 - No independent security review or penetration test has been done. Do one before handling real users at scale.
-- There is no privacy policy or terms page yet. One is needed before launch, and AdSense requires it.
+- The privacy and terms pages are drafts. They need a contact address and a legal review before launch (see SETUP.md).

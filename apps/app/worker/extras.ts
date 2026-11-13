@@ -114,7 +114,8 @@ ads.get('/:placement', async (c) => {
 /** Ends old meetups, deletes their locations, and clears expired sessions, codes and locks. */
 export async function cleanUp(db: Db): Promise<void> {
   await db.batch([
-    ["update meetups set status = 'ended', updated_at = now() where status <> 'ended' and starts_at is not null and starts_at < now() - interval '24 hours'", []],
+    // A meetup ends a day after it starts. One that never got a date ends 30 days after its last change, so nothing lingers.
+    ["update meetups set status = 'ended', updated_at = now() where status <> 'ended' and ((starts_at is not null and starts_at < now() - interval '24 hours') or (starts_at is null and updated_at < now() - interval '30 days'))", []],
     ["update participants set lat = null, lng = null where meetup_id in (select id from meetups where status = 'ended') and lat is not null", []],
     ["delete from guest_devices where participant_id in (select p.id from participants p join meetups m on m.id = p.meetup_id where m.status = 'ended')", []],
     ["delete from meetups where status = 'ended' and updated_at < now() - interval '90 days'", []],
