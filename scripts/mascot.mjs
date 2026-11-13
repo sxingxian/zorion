@@ -50,19 +50,21 @@ export function head(p, look, rim) {
 }
 
 // ---------- full body, in a 240-wide frame ----------
-const BODY = 'M120 126 C156 126 178 148 178 174 C178 200 154 214 120 214 C86 214 62 200 62 174 C62 148 84 126 120 126 Z';
-const TAIL = 'M176 172 C192 172 200 160 192 152 C186 147 178 152 182 159 C185 164 192 162 192 157';
+const BODY = 'M120 126 C156 126 176 148 176 176 C176 202 154 216 120 216 C86 216 64 202 64 176 C64 148 84 126 120 126 Z';
+const TAIL = 'M174 154 C190 156 199 144 192 135 C186 129 177 134 181 141 C184 146 191 144 191 139';
+// Four limbs, standing upright: two feet, the left hoof up in a wave, the right hoof resting.
+const FEET = [[90, 198], [130, 198]];
+const WAVE = 'M74 166 L56 142';
+const REST = 'M165 168 L172 191';
 function body(p, look, rim) {
-  const legs = [[80, 192, p.back], [140, 192, p.back], [95, 197, p.skin], [125, 197, p.skin]];
   const out = [];
-  if (rim) out.push(`<g fill="${RIM}" stroke="${RIM}" stroke-width="6" stroke-linejoin="round"><path d="${BODY}"></path>${legs.map(([x, y]) => `<rect x="${x}" y="${y}" width="20" height="28" rx="10"></rect>`).join('')}<path d="M72 164 L56 142" stroke-width="26" stroke-linecap="round"></path></g>`);
-  out.push(`<ellipse cx="120" cy="228" rx="56" ry="5" fill="#000000" opacity="0.14"></ellipse>`);
+  if (rim) out.push(`<g fill="${RIM}" stroke="${RIM}" stroke-width="6" stroke-linejoin="round"><path d="${BODY}"></path>${FEET.map(([x, y]) => `<rect x="${x}" y="${y}" width="22" height="28" rx="11"></rect>`).join('')}<path d="${WAVE}" stroke-width="26" stroke-linecap="round"></path><path d="${REST}" stroke-width="24" stroke-linecap="round"></path></g>`);
+  out.push(`<ellipse cx="120" cy="228" rx="52" ry="5" fill="#000000" opacity="0.14"></ellipse>`);
   out.push(`<path d="${TAIL}" fill="none" stroke="${rim ? RIM : p.accent}" stroke-width="6" stroke-linecap="round"></path>`);
-  for (const [x, y, c] of legs.slice(0, 2)) out.push(`<rect x="${x}" y="${y}" width="20" height="28" rx="10" fill="${c}"></rect><path d="M${x} ${y + 20} H${x + 20} V${y + 18} A10 10 0 0 1 ${x + 20} ${y + 28} H${x} Z" fill="${p.accent}"></path>`);
-  out.push(`<path d="${BODY}" fill="${p.skin}"></path><ellipse cx="120" cy="184" rx="34" ry="22" fill="${p.shade}"></ellipse>`);
-  for (const [x, y, c] of legs.slice(2)) out.push(`<rect x="${x}" y="${y}" width="20" height="28" rx="10" fill="${c}"></rect><rect x="${x}" y="${y + 19}" width="20" height="9" rx="4.5" fill="${p.accent}"></rect><path d="M${x + 10} ${y + 21} V${y + 28}" stroke="${p.deep}" stroke-width="1.6"></path>`);
-  // a front hoof raised in a wave
-  out.push(`<path d="M72 164 L56 142" stroke="${p.skin}" stroke-width="20" stroke-linecap="round"></path><path d="M57.5 144 L54 139" stroke="${p.accent}" stroke-width="20" stroke-linecap="round"></path><path d="M49 136 L57 142" stroke="${p.deep}" stroke-width="1.6" stroke-linecap="round"></path>`);
+  for (const [x, y] of FEET) out.push(`<rect x="${x}" y="${y}" width="22" height="28" rx="11" fill="${p.skin}"></rect><rect x="${x}" y="${y + 18}" width="22" height="10" rx="5" fill="${p.accent}"></rect><path d="M${x + 11} ${y + 20} V${y + 28}" stroke="${p.deep}" stroke-width="1.8"></path>`);
+  out.push(`<path d="${BODY}" fill="${p.skin}"></path><ellipse cx="120" cy="184" rx="33" ry="22" fill="${p.shade}"></ellipse>`);
+  out.push(`<path d="${WAVE}" stroke="${p.skin}" stroke-width="20" stroke-linecap="round"></path><path d="M57.5 144 L54 139" stroke="${p.accent}" stroke-width="20" stroke-linecap="round"></path><path d="M49 136 L57 142" stroke="${p.deep}" stroke-width="1.8" stroke-linecap="round"></path>`);
+  out.push(`<path d="${REST}" stroke="${p.skin}" stroke-width="18" stroke-linecap="round"></path><path d="M171 188 L172.5 192" stroke="${p.accent}" stroke-width="18" stroke-linecap="round"></path><path d="M166 195 L178 191" stroke="${p.deep}" stroke-width="1.8" stroke-linecap="round"></path>`);
   if (look === 'star') out.push(`<path d="M88 150 Q120 186 152 150" fill="none" stroke="${GOLD}" stroke-width="5" stroke-dasharray="1 8" stroke-linecap="round"></path><path d="${star(120, 172, 11)}" fill="${GOLD}" stroke="${GOLD}" stroke-width="2" stroke-linejoin="round"></path>`);
   return out.join('');
 }
