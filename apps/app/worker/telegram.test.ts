@@ -227,3 +227,33 @@ describe('housekeeping', () => {
     expect(asTelegram('A & B', 'x < y > z')).toBe('<b>A &amp; B</b>\n\nx &lt; y &gt; z');
   });
 });
+
+describe('connecting the bot to the app', () => {
+  it('sets the webhook once, and again only when the address or the secret changes', async () => {
+    const { ensureTelegramWebhook } = await import('./telegram');
+    const calls: string[] = [];
+    let current = '';
+    const fetchTg = (async (url: string, init?: RequestInit) => {
+      const method = String(url).split('/').at(-1)!;
+      calls.push(method);
+      const body = JSON.parse(String(init?.body ?? '{}'));
+      if (method === 'setWebhook') {
+        expect(body).toEqual({ url: 'https://zorionapp.example/api/webhooks/telegram', secret_token: body.secret_token, allowed_updates: ['message'] });
+        current = body.url;
+      }
+      return Response.json({ ok: true, result: method === 'getWebhookInfo' ? { url: current } : true });
+    }) as unknown as typeof fetch;
+    const prod = (secret: string) => ({ db: deps.db!, env: { ...env, APP_ORIGIN: 'https://zorionapp.example', TELEGRAM_WEBHOOK_SECRET: secret }, fetch: fetchTg, now: deps.now!, outbox: [] }) as Deps;
+
+    expect(await ensureTelegramWebhook(prod('first-secret-value'))).toBe('set');
+    expect(calls).toEqual(['getWebhookInfo', 'setWebhook', 'setMyCommands']);
+    calls.length = 0;
+    expect(await ensureTelegramWebhook(prod('first-secret-value'))).toBe('ok');
+    expect(calls).toEqual(['getWebhookInfo']);
+    calls.length = 0;
+    expect(await ensureTelegramWebhook(prod('a-new-secret-value'))).toBe('set'); // the secret was replaced
+    expect(calls).toContain('setWebhook');
+    expect(await ensureTelegramWebhook({ ...prod('x'), env: { ...env, TELEGRAM_BOT_TOKEN: undefined } } as Deps)).toBe('off');
+    expect(await ensureTelegramWebhook({ ...prod('x'), env: { ...env, APP_ORIGIN: 'http://localhost:5173' } } as Deps)).toBe('off'); // Telegram needs https
+  });
+});

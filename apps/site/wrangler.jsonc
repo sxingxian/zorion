@@ -6,16 +6,20 @@
   "compatibility_flags": ["nodejs_compat"],
   "assets": {
     "not_found_handling": "single-page-application",
-    "run_worker_first": ["/admin/api/*", "/api/*"]
+    "run_worker_first": ["/admin/api/*", "/api/*", "/ads.txt"]
   },
   "routes": [{ "pattern": "zorion.midnightpoetry.studio", "custom_domain": true }],
   "observability": { "enabled": true },
+  // Serve only the custom domain: no *.workers.dev address and no preview addresses.
+  "workers_dev": false,
+  "preview_urls": false,
+  // Keep variables added in the Cloudflare dashboard when Git deploys run.
+  "keep_vars": true,
   "vars": {
     "ENVIRONMENT": "production",
     "APP_ORIGIN": "https://zorionapp.midnightpoetry.studio",
-    "SITE_ORIGIN": "https://zorion.midnightpoetry.studio",
-    // Shown on the privacy and terms pages. Set it before launch.
-    "CONTACT_EMAIL": ""
+    "SITE_ORIGIN": "https://zorion.midnightpoetry.studio"
+    // CONTACT_EMAIL (shown on the privacy and terms pages): add it in the Cloudflare dashboard.
   }
-  // Secrets (set with `wrangler secret put`): DATABASE_URL, PEPPER, TOTP_KEY (the same values as zorion-app)
+  // Secrets: DATABASE_URL, PEPPER, TOTP_KEY (the same values as zorion-app), and ADMIN_SETUP_TOKEN while creating the first admin
 }

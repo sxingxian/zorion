@@ -28,7 +28,10 @@ export default function AdminApp({ path, go }: { path: string; go: (to: string) 
   const [idle, setIdle] = useState(30);
   const refresh = useCallback(() => call('GET', '/me').then((r) => { setAdmin(r.admin); setIdle(r.idleMinutes); }).catch(() => setAdmin(null)), []);
   useEffect(() => { refresh(); }, [refresh]);
-  if (admin === undefined) return <div className="signin" />;
+  const [setupOpen, setSetupOpen] = useState<boolean | undefined>(undefined);
+  useEffect(() => { call<{ open: boolean }>('GET', '/setup').then((r) => setSetupOpen(r.open)).catch(() => setSetupOpen(false)); }, []);
+  if (admin === undefined || setupOpen === undefined) return <div className="signin" />;
+  if (!admin && setupOpen) return <Setup onDone={() => { setSetupOpen(false); refresh(); }} />;
   if (!admin) return <SignIn onDone={refresh} />;
   const propose = async (action: string, payload: unknown) => {
     const r = await call('POST', '/propose', { action, payload });
@@ -47,6 +50,69 @@ export default function AdminApp({ path, go }: { path: string; go: (to: string) 
           <button className="btn" style={{ marginTop: 8, color: '#fff', borderColor: '#33333b' }} onClick={() => call('POST', '/sign-out').then(refresh)}>Sign out</button></div>
       </aside>
       <main>{page}</main>
+    </div>
+  );
+}
+
+/** The authenticator key as a QR code, drawn on this device. */
+function Qr({ text }: { text: string }) {
+  const [d, setD] = useState<{ n: number; path: string } | null>(null);
+  useEffect(() => {
+    let live = true;
+    import('qrcode-generator').then(({ default: qrcode }) => {
+      const qr = qrcode(0, 'M');
+      qr.addData(text);
+      qr.make();
+      const n = qr.getModuleCount();
+      let path = '';
+      for (let r = 0; r < n; r++) for (let col = 0; col < n; col++) if (qr.isDark(r, col)) path += `M${col} ${r}h1v1h-1z`;
+      if (live) setD({ n, path });
+    });
+    return () => { live = false; };
+  }, [text]);
+  if (!d) return <div style={{ width: 200, height: 200 }} />;
+  return <svg viewBox={`-4 -4 ${d.n + 8} ${d.n + 8}`} width={200} height={200} role="img" aria-label="QR code for your authenticator app" shapeRendering="crispEdges" style={{ background: '#fff', borderRadius: 12, alignSelf: 'center' }}><path d={d.path} fill="#0b0b0d" /></svg>;
+}
+
+/** First admin: shown only while there are no admins and the Worker has ADMIN_SETUP_TOKEN. */
+function Setup({ onDone }: { onDone: () => void }) {
+  const [token, setToken] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [key, setKey] = useState<{ secret: string; uri: string } | null>(null);
+  const [code, setCode] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      if (!key) setKey(await call('POST', '/setup/key', { token }));
+      else { await call('POST', '/setup', { token, email, password, secret: key.secret, code }); onDone(); }
+    } catch (err) { setError((err as Error).message); } finally { setBusy(false); }
+  };
+  return (
+    <div className="adm signin">
+      <form onSubmit={submit}>
+        <h1 className="display">Set up the first admin</h1>
+        {!key ? (
+          <>
+            <label>Setup token<input className="input" type="password" autoComplete="off" value={token} onChange={(e) => setToken(e.target.value)} required /></label>
+            <label>Your email<input className="input" type="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} required /></label>
+            <label>Password (12+ characters)<input className="input" type="password" autoComplete="new-password" minLength={12} value={password} onChange={(e) => setPassword(e.target.value)} required /></label>
+          </>
+        ) : (
+          <>
+            <p className="sub">Scan this with your authenticator app, then enter the code it shows.</p>
+            <Qr text={key.uri} />
+            <p className="sub" style={{ overflowWrap: 'anywhere' }}>Key: <code>{key.secret}</code></p>
+            <label>Authenticator code<input className="input" inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))} required /></label>
+          </>
+        )}
+        {error && <div className="err" role="alert">{error}</div>}
+        <button className="btn solid" disabled={busy}>{key ? 'Create admin' : 'Continue'}</button>
+      </form>
     </div>
   );
 }

@@ -47,11 +47,13 @@ const outbox = new Proxy([] as Array<{ to: string; subject: string; text: string
   },
 });
 const app = createApp({ db, env, fetch: fakePlaces, outbox });
-const admin = createAdmin({ db, env });
+const admin = createAdmin({ db, env: { ...env, ADMIN_SETUP_TOKEN: process.env.DEMO_SETUP === '1' ? 'demo-setup-token-1234' : undefined } });
 
 // The browser tests pass a fixed key so they can work out the admin's authenticator code.
 const adminSecret = process.env.DEMO_ADMIN_KEY || newTotpSecret();
-await db.query('insert into admins (email, password_hash, totp_secret, totp_enabled, role) values ($1, $2, $3, true, $4)', ['admin@example.com', await hashPassword('demo-admin-password', env.PEPPER), await seal(adminSecret, env.TOTP_KEY), 'super']);
+// DEMO_SETUP=1 starts with no admin, to try the first-admin setup (token: demo-setup-token-1234).
+const setupDemo = process.env.DEMO_SETUP === '1';
+if (!setupDemo) await db.query('insert into admins (email, password_hash, totp_secret, totp_enabled, role) values ($1, $2, $3, true, $4)', ['admin@example.com', await hashPassword('demo-admin-password', env.PEPPER), await seal(adminSecret, env.TOTP_KEY), 'super']);
 
 function serve(port: number, root: string, isApi: (path: string) => boolean, api: { fetch(req: Request): Response | Promise<Response> }) {
   const base = resolve(root);
@@ -90,6 +92,5 @@ serve(SITE_PORT, 'apps/site/dist/client', (p) => p.startsWith('/api/') || p.star
 console.log(`Zorion demo is running. Data lives in memory and is gone when you stop it.
   App      ${env.APP_ORIGIN}
   Landing  ${env.SITE_ORIGIN}
-  Admin    ${env.SITE_ORIGIN}/admin   admin@example.com / demo-admin-password
-           authenticator key: ${adminSecret}
+  Admin    ${env.SITE_ORIGIN}/admin   ${setupDemo ? 'no admin yet: set one up with the token demo-setup-token-1234' : `admin@example.com / demo-admin-password\n           authenticator key: ${adminSecret}`}
 Sign-in codes for the app are printed here instead of being emailed.`);
