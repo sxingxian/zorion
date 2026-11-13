@@ -18,6 +18,10 @@ const env = {
   PEPPER: 'demo-pepper-not-for-production',
   TOTP_KEY: btoa('0123456789abcdef0123456789abcdef'),
   ENVIRONMENT: 'development',
+  // A pretend bot: the Telegram choice shows, and messages land in the outbox instead of Telegram.
+  // To play Telegram's part, POST to /api/webhooks/telegram with the header below (see e2e/helpers.ts).
+  TELEGRAM_BOT_USERNAME: 'ZorionDemoBot',
+  TELEGRAM_WEBHOOK_SECRET: 'demo-telegram-secret',
 };
 const TYPES: Record<string, string> = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.woff2': 'font/woff2', '.webmanifest': 'application/manifest+json', '.json': 'application/json' };
 

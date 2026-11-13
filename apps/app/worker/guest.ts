@@ -5,7 +5,8 @@ import * as schemas from '@zorion/core/schemas';
 import type { Row } from '@zorion/db';
 import { type App, type C, Fail, body, clearStrikes, clientKey, guardLock, putCookie, readCookie, setting, strike } from './core';
 import { hmac, randomToken, sha256 } from './crypto';
-import { emailToken, guestForToken, later, sendConfirmation, tellHost } from './mail';
+import { guestForToken, later, sendConfirmation, tellHost } from './mail';
+import { connectLink, telegramReady } from './telegram';
 import { type Loaded, load, lookupStart, summarise, tripMinutes } from './meetups';
 import { directionsUrl } from './places';
 
@@ -75,6 +76,7 @@ function guestView(c: C, L: Loaded, who: Row | null, dateChange: { replies: stri
   const winner = L.cats.find((x) => x.key === L.m.winning_category) ?? null;
   return {
     name: L.m.name,
+    telegramReady: telegramReady(c.get('deps')),
     hostName: host.name,
     status: L.m.status,
     timeZone: L.m.time_zone,
@@ -99,6 +101,7 @@ function guestView(c: C, L: Loaded, who: Row | null, dateChange: { replies: stri
     dateChange,
     me: who && {
       email: who.email ? { address: maskEmail(who.email), confirmed: !!who.email_confirmed } : null,
+      telegram: !!who.telegram_chat_id,
       id: who.id, name: who.name, rsvp: who.rsvp, rsvpIsDefault: who.rsvp_is_default, dates: who.dates, noDateWorks: who.no_date_works, categories: who.categories, place: who.place,
       hasLocation: who.lat !== null, joinedLate: who.joined_late, canAmend: !!who.can_amend,
       pickedSetDate: s.setDate ? (who.dates as string[]).includes(s.setDate) : null,
@@ -300,6 +303,30 @@ guest.post('/:token/email/stop', async (c) => {
   const p = t ? await guestForToken(c.get('deps'), L, t) : await whoAmI(c, L);
   if (p) await c.get('deps').db.query('update participants set email = null, email_confirmed = false where id = $1', [p.id]);
   if (t) return c.json({ ok: true }); // the same answer whether or not the link was still good
+  return respond(c, L);
+});
+
+// ----- optional Telegram updates for a guest: the same updates as email -----
+
+guest.post('/:token/telegram', async (c) => {
+  const L = await open(c);
+  const p = await me(c, L);
+  if (p.is_host) throw new Fail(409, 'host', 'Hosts connect Telegram under Account.');
+  const deps = c.get('deps');
+  if (!telegramReady(deps)) throw new Fail(409, 'off', 'Telegram is not set up yet.');
+  const key = `telegram-link:${p.id}`;
+  await guardLock(deps.db, key);
+  await strike(deps.db, key, 10, 60, 60);
+  return c.json({ url: await connectLink(deps, { participantId: p.id }) });
+});
+
+guest.post('/:token/telegram/stop', async (c) => {
+  const L = await open(c);
+  const p = await me(c, L);
+  await c.get('deps').db.batch([
+    ['update participants set telegram_chat_id = null where id = $1', [p.id]],
+    ['delete from telegram_links where participant_id = $1', [p.id]],
+  ]);
   return respond(c, L);
 });
 

@@ -23,5 +23,6 @@
   }
   // Secrets (set with `wrangler secret put`): DATABASE_URL, PEPPER, TOTP_KEY, RESEND_API_KEY, EMAIL_FROM,
   // GOOGLE_PLACES_KEY, STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, STRIPE_PRICE_MONTHLY, STRIPE_PRICE_YEARLY
-  // Optional: ORS_API_KEY (openrouteservice, free plan), GOOGLE_ROUTES_KEY (falls back to GOOGLE_PLACES_KEY), OVERPASS_URL and NOMINATIM_URL (your own map servers)
+  // Optional: TELEGRAM_BOT_TOKEN, TELEGRAM_BOT_USERNAME and TELEGRAM_WEBHOOK_SECRET (updates on Telegram; then run npm run telegram:setup),
+  // ORS_API_KEY (openrouteservice, free plan), GOOGLE_ROUTES_KEY (falls back to GOOGLE_PLACES_KEY), OVERPASS_URL and NOMINATIM_URL (your own map servers)
 }

@@ -4,38 +4,93 @@ import { Btn, Field, Note, Oops } from './ui';
 
 type M = Record<string, any>;
 
-/**
- * Optional email updates for a guest. Off unless they ask, confirmed from their own inbox,
- * never shown to the host or the crew, and forgotten when the meetup ends or they stop it.
- */
-export function EmailUpdates({ token, m, setM }: { token: string; m: M; setM: (m: M) => void }) {
-  const [open, setOpen] = useState(false);
-  const [email, setEmail] = useState('');
-  const [run, busy, error] = useAction();
-  const mine = m.me?.email as { address: string; confirmed: boolean } | null;
-  const valid = /^\S+@\S+\.\S+$/.test(email.trim());
-  const stop = () => run(async () => { setM((await api('POST', `/g/${token}/email/stop`, {})).meetup); setOpen(false); setEmail(''); });
+/** A one-time Telegram link, shown as a button so the browser never blocks it as a pop-up. */
+export function TelegramLink({ url, onCancel }: { url: string; onCancel: () => void }) {
+  return (
+    <div className="card stack" style={{ gap: 10 }}>
+      <strong style={{ fontWeight: 800 }}>Open Telegram and press Start</strong>
+      <p className="small">That connects this chat. The link works once, for 30 minutes. Then come back here.</p>
+      <a className="btn" href={url} target="_blank" rel="noopener noreferrer">Open Telegram</a>
+      <button type="button" className="btn text" onClick={onCancel}>Cancel</button>
+    </div>
+  );
+}
 
-  if (mine?.confirmed) {
-    return <div className="card row between" style={{ gap: 10 }}><span className="small" style={{ fontSize: 14 }}>Email updates go to <strong>{mine.address}</strong></span><button className="btn text" style={{ width: 'auto' }} disabled={busy} onClick={stop}>Stop</button></div>;
-  }
-  if (mine) {
+/**
+ * Optional updates for a guest, by email, Telegram or both. Off unless they ask. The same updates,
+ * worded the same way, go to each channel. The host and the crew never see the address or the chat,
+ * and both are forgotten when the meetup ends or the guest stops them.
+ */
+export function Updates({ token, m, setM }: { token: string; m: M; setM: (m: M) => void }) {
+  const [step, setStep] = useState<'closed' | 'choose' | 'email' | 'telegram'>('closed');
+  const [email, setEmail] = useState('');
+  const [link, setLink] = useState<string | null>(null);
+  const [run, busy, error, clear] = useAction();
+  const mine = m.me?.email as { address: string; confirmed: boolean } | null;
+  const onTelegram = !!m.me?.telegram;
+  const tgReady = !!m.telegramReady;
+  const valid = /^\S+@\S+\.\S+$/.test(email.trim());
+  const go = (s: typeof step) => { clear(); setStep(s); };
+  const post = (path: string, body: unknown = {}) => run(async () => setM((await api('POST', `/g/${token}${path}`, body)).meetup));
+  const telegram = () => run(async () => { setLink((await api('POST', `/g/${token}/telegram`, {})).url); setStep('telegram'); });
+
+  // Connected Telegram while the link was open: close it.
+  useEffect(() => { if (onTelegram && step === 'telegram') { setStep('closed'); setLink(null); } }, [onTelegram, step]);
+
+  const lines = [
+    mine?.confirmed && <div key="e" className="row between" style={{ gap: 10 }}><span className="small" style={{ fontSize: 14 }}>Email updates go to <strong>{mine.address}</strong></span><button type="button" className="btn text" style={{ width: 'auto' }} disabled={busy} onClick={() => post('/email/stop')}>Stop</button></div>,
+    onTelegram && <div key="t" className="row between" style={{ gap: 10 }}><span className="small" style={{ fontSize: 14 }}>Updates {mine?.confirmed ? 'also come' : 'come'} on <strong>Telegram</strong></span><button type="button" className="btn text" style={{ width: 'auto' }} disabled={busy} onClick={() => post('/telegram/stop')}>Stop</button></div>,
+  ].filter(Boolean);
+  const pendingEmail = mine && !mine.confirmed;
+  const canAddEmail = !mine;
+  const canAddTelegram = tgReady && !onTelegram;
+  const label = m.status === 'confirmed' ? 'if the plan changes' : 'when the place is set';
+
+  if (step === 'telegram' && link) return <TelegramLink url={link} onCancel={() => { setLink(null); go('closed'); }} />;
+
+  if (step === 'email') {
     return (
-      <div className="stack" style={{ gap: 8 }}>
-        <Note ok>Check {mine.address} and open the link to confirm. Nothing else is sent until you do.</Note>
+      <form className="card stack" style={{ gap: 10 }} onSubmit={(e) => { e.preventDefault(); if (valid && !busy) run(async () => { setM((await api('POST', `/g/${token}/email`, { email: email.trim() })).meetup); setStep('closed'); }); }}>
+        <Field label="Your email" type="email" inputMode="email" autoComplete="email" placeholder="you@example.com" value={email} onChange={setEmail} />
         <Oops>{error}</Oops>
-        <button className="btn text" disabled={busy} onClick={stop}>Use another address, or cancel</button>
+        <Btn kind="second" type="submit" busy={busy} disabled={!valid}>Email me updates</Btn>
+        <p className="small">Only for this meetup. The host and the crew never see your address, and it is erased when the meetup ends. Every email has a link to stop them.</p>
+        <button type="button" className="btn text" onClick={() => go('closed')}>Cancel</button>
+      </form>
+    );
+  }
+
+  if (step === 'choose') {
+    return (
+      <div className="card stack" style={{ gap: 10 }}>
+        <strong style={{ fontWeight: 800 }}>Get updates {label}</strong>
+        <p className="small">The same short updates either way. The host and the crew never see where they go.</p>
+        <div className="row" style={{ gap: 8 }}>
+          {canAddEmail && <Btn kind="second" onClick={() => go('email')}>By email</Btn>}
+          {canAddTelegram && <Btn kind="second" busy={busy} onClick={telegram}>On Telegram</Btn>}
+        </div>
+        <Oops>{error}</Oops>
+        <button type="button" className="btn text" onClick={() => go('closed')}>Cancel</button>
       </div>
     );
   }
-  if (!open) return <Btn kind="text" onClick={() => setOpen(true)}>{m.status === 'confirmed' ? 'Email me if the plan changes' : 'Email me when the place is set'}</Btn>;
+
   return (
-    <form className="card stack" style={{ gap: 10 }} onSubmit={(e) => { e.preventDefault(); if (valid && !busy) run(async () => setM((await api('POST', `/g/${token}/email`, { email: email.trim() })).meetup)); }}>
-      <Field label="Your email" type="email" inputMode="email" autoComplete="email" placeholder="you@example.com" value={email} onChange={setEmail} />
+    <div className="stack" style={{ gap: 6 }}>
+      {lines.length > 0 && <div className="card stack" style={{ gap: 6 }}>{lines}</div>}
+      {pendingEmail && (
+        <>
+          <Note ok>Check {mine.address} and open the link to confirm. Nothing else is sent until you do.</Note>
+          <button type="button" className="btn text" disabled={busy} onClick={() => post('/email/stop')}>Use another address, or cancel</button>
+        </>
+      )}
       <Oops>{error}</Oops>
-      <Btn kind="second" type="submit" busy={busy} disabled={!valid}>Email me updates</Btn>
-      <p className="small">Only for this meetup. The host and the crew never see your address, and it is erased when the meetup ends. Every email has a link to stop them.</p>
-    </form>
+      {lines.length === 0 && !pendingEmail && (canAddEmail || canAddTelegram) && (
+        <Btn kind="text" onClick={() => (canAddEmail && canAddTelegram ? go('choose') : canAddEmail ? go('email') : telegram())}>{canAddEmail && !canAddTelegram ? `Email me ${label}` : `Get updates ${label}`}</Btn>
+      )}
+      {(lines.length > 0 || pendingEmail) && canAddTelegram && <Btn kind="text" busy={busy} onClick={telegram}>Also on Telegram</Btn>}
+      {lines.length > 0 && canAddEmail && <Btn kind="text" onClick={() => go('email')}>Also by email</Btn>}
+    </div>
   );
 }
 

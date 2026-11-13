@@ -82,3 +82,19 @@ export async function mailsTo(page: Page, email: string): Promise<Array<{ subjec
   const { outbox } = await (await page.request.get(`${APP}/api/dev/outbox`)).json();
   return outbox.filter((m: { to: string }) => m.to === email);
 }
+
+/** Plays Telegram's part: the person opens the bot link and presses Start in a private chat. */
+export async function pressStartInTelegram(page: Page, botLink: string, chatId: number): Promise<void> {
+  const start = new URL(botLink).searchParams.get('start');
+  const res = await page.request.post(`${APP}/api/webhooks/telegram`, {
+    headers: { 'x-telegram-bot-api-secret-token': 'demo-telegram-secret' },
+    data: { update_id: chatId, message: { message_id: 1, text: `/start ${start}`, chat: { id: chatId, type: 'private' } } },
+  });
+  expect(res.status()).toBe(200);
+}
+
+/** Messages the demo "sent" to a Telegram chat, oldest first. */
+export async function telegramTo(page: Page, chatId: number): Promise<Array<{ subject: string; text: string }>> {
+  const { outbox } = await (await page.request.get(`${APP}/api/dev/outbox`)).json();
+  return outbox.filter((m: { to: string }) => m.to === `telegram:${chatId}`);
+}

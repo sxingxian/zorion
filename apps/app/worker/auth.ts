@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { LIMITS, cleanName } from '@zorion/core';
 import * as schemas from '@zorion/core/schemas';
 import { one } from '@zorion/db';
+import { connectLink, telegramReady } from './telegram';
 import { type App, type C, Fail, body, clearStrikes, clientKey, endSession, guardLock, requireUser, sendEmail, startSession, strike, toUser } from './core';
 import { hashPassword, hmac, newTotpSecret, otpauthUri, randomDigits, randomToken, safeEqual, seal, sha256, unseal, verifyPassword, verifyTotp } from './crypto';
 
@@ -154,7 +155,7 @@ auth.post('/sign-out', async (c) => {
   return c.json({ ok: true });
 });
 
-auth.get('/me', (c) => c.json({ user: c.get('user'), pending: c.get('pending') ? { first: c.get('pending')!.first } : null }));
+auth.get('/me', (c) => c.json({ user: c.get('user'), pending: c.get('pending') ? { first: c.get('pending')!.first } : null, telegram: telegramReady(c.get('deps')) }));
 
 // ---------- account ----------
 export const account = new Hono<App>();
@@ -166,7 +167,7 @@ account.patch('/', async (c) => {
   const name = input.displayName === undefined ? undefined : cleanName(input.displayName, LIMITS.inviteeName);
   if (input.displayName !== undefined && !name) throw new Fail(422, 'invalid', 'Enter a name.');
   const row = await one(c.get('deps').db, `update users u set theme = coalesce($2, theme), display_name = coalesce($3, display_name), notify = coalesce($4, notify) where id = $1
-     returning u.id, u.email, u.display_name, u.plan, u.theme, u.status, u.totp_enabled, (u.password_hash is not null) as has_password, u.notify`, [user.id, input.theme ?? null, name ?? null, input.notify ?? null]);
+     returning u.id, u.email, u.display_name, u.plan, u.theme, u.status, u.totp_enabled, (u.password_hash is not null) as has_password, u.notify, (u.telegram_chat_id is not null) as telegram`, [user.id, input.theme ?? null, name ?? null, input.notify ?? null]);
   return c.json({ user: toUser(row!) });
 });
 
@@ -221,12 +222,31 @@ account.post('/two-step/disable', async (c) => {
   return c.json({ ok: true });
 });
 
+/** A one-time link that opens Zorion's bot in Telegram. Pressing Start there connects the chat. */
+account.post('/telegram', async (c) => {
+  const user = requireUser(c);
+  const deps = c.get('deps');
+  if (!telegramReady(deps)) throw new Fail(409, 'off', 'Telegram is not set up yet.');
+  const key = `telegram-link:${user.id}`;
+  await guardLock(deps.db, key);
+  await strike(deps.db, key, 10, 60, 60);
+  return c.json({ url: await connectLink(deps, { userId: user.id }) });
+});
+account.post('/telegram/stop', async (c) => {
+  const user = requireUser(c);
+  await c.get('deps').db.batch([
+    ['update users set telegram_chat_id = null where id = $1', [user.id]],
+    ['delete from telegram_links where user_id = $1', [user.id]],
+  ]);
+  return c.json({ ok: true });
+});
+
 account.get('/export', async (c) => {
   const user = requireUser(c);
   const { db } = c.get('deps');
   const meetups = await db.query('select id, name, status, starts_at, created_at from meetups where host_id = $1 order by created_at', [user.id]);
   const own = await db.query('select name, icon from own_categories where user_id = $1', [user.id]);
-  return c.json({ account: { email: user.email, name: user.display_name, plan: user.plan }, meetups, ownCategories: own });
+  return c.json({ account: { email: user.email, name: user.display_name, plan: user.plan, emailsAboutMeetups: user.notify, telegramConnected: user.telegram }, meetups, ownCategories: own });
 });
 
 account.post('/delete', async (c) => {

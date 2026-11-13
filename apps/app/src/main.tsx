@@ -40,7 +40,8 @@ function App() {
   const [mode, modeChoice, setMode] = useMode();
   const refresh = useCallback(async () => {
     try {
-      setMe((await api('GET', '/auth/me')).user);
+      const r = await api('GET', '/auth/me');
+      setMe(r.user ? { ...r.user, telegram_ready: !!r.telegram } : null);
     } catch {
       setMe(null);
     }

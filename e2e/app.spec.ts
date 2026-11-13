@@ -205,7 +205,8 @@ test('emails: a guest opts in and confirms, the host hears the votes are in, the
   await expect(mia.page.getByText('Votes in')).toBeVisible();
 
   // Mia asks for updates. Nothing but a confirmation goes out until she confirms.
-  await tap(mia.page, 'Email me when the place is set');
+  await tap(mia.page, 'Get updates when the place is set');
+  await tap(mia.page, 'By email');
   await mia.page.getByLabel('Your email').fill('mia-mail@example.com');
   await tap(mia.page, 'Email me updates');
   await expect(mia.page.getByText('Check m•••@example.com and open the link to confirm.')).toBeVisible();
@@ -235,7 +236,7 @@ test('emails: a guest opts in and confirms, the host hears the votes are in, the
   await other.goto(news.text.match(/http\S+\?stop=\S+/)![0]);
   await expect(other.getByRole('status')).toHaveText('Email updates are off. Your address is forgotten.');
   await mia.page.reload();
-  await expect(mia.page.getByText('Email me if the plan changes')).toBeVisible();
+  await expect(mia.page.getByText('Get updates if the plan changes')).toBeVisible();
 
   // A host can switch their own emails off.
   await page.goto(`${APP}/account`);
@@ -243,4 +244,68 @@ test('emails: a guest opts in and confirms, the host hears the votes are in, the
   await expect(toggle).toHaveAttribute('aria-checked', 'true');
   await toggle.click();
   await expect(toggle).toHaveAttribute('aria-checked', 'false');
+});
+
+test('telegram: a guest and the host connect, and get the same update as email, laid out like it', async ({ page, browser }) => {
+  const { mailsTo, pressStartInTelegram, telegramTo } = await import('./helpers');
+  await signIn(page, 'host-tg@example.com');
+
+  // The host connects Telegram under Account.
+  await page.goto(`${APP}/account`);
+  await page.getByRole('button', { name: 'Connect', exact: true }).click();
+  const hostLink = await page.getByRole('link', { name: 'Open Telegram' }).getAttribute('href');
+  expect(hostLink).toMatch(/^https:\/\/t\.me\/ZorionDemoBot\?start=[A-Za-z0-9_-]{32}$/);
+  await pressStartInTelegram(page, hostLink!, 7001);
+  await expect(page.getByText('Connected. The same news comes there too.')).toBeVisible({ timeout: 10_000 });
+  expect((await telegramTo(page, 7001)).at(-1)!.text).toContain('Connected. Zorion will message you here about the meetups you host');
+
+  await page.goto(APP);
+  const link = await hostMeetup(page, ['Mia']);
+  const mia = await joinAs(browser, link, 'Mia');
+  await tap(mia.page, 'Going');
+  await tap(mia.page, 'Continue');
+  await tap(mia.page, 'Share my GPS location');
+  await tap(mia.page, 'Pizza');
+  await tap(mia.page, 'Cast my');
+
+  // Mia picks Telegram, then email as well.
+  await tap(mia.page, 'Get updates when the place is set');
+  await tap(mia.page, 'On Telegram');
+  const miaLink = await mia.page.getByRole('link', { name: 'Open Telegram' }).getAttribute('href');
+  await pressStartInTelegram(mia.page, miaLink!, 7002);
+  await mia.page.reload();
+  await expect(mia.page.getByText('Updates come on')).toBeVisible(); // Telegram only, so far
+  await tap(mia.page, 'Also by email');
+  await mia.page.getByLabel('Your email').fill('mia-tg@example.com');
+  await tap(mia.page, 'Email me updates');
+  const confirm = (await mailsTo(page, 'mia-tg@example.com')).at(-1)!;
+  await mia.page.goto(confirm.text.match(/http\S+\?confirm=\S+/)![0]);
+  await expect(mia.page.getByText('Email updates go to')).toBeVisible();
+
+  // The host heard the votes are in on both channels, worded the same.
+  const hostMail = (await mailsTo(page, 'host-tg@example.com')).find((m) => m.subject.startsWith('The food votes are in'))!;
+  const hostTg = (await telegramTo(page, 7001)).find((m) => m.subject.startsWith('The food votes are in'))!;
+  expect(hostTg.subject).toBe(hostMail.subject);
+  expect(hostTg.text.split('\n').slice(0, -1)).toEqual(hostMail.text.split('\n').slice(0, -1));
+  expect(hostTg.text.split('\n').at(-1)).toMatch(/, or send \/stop\.$/);
+
+  // It is on: Mia gets it on both.
+  await page.reload();
+  await tap(page, 'Find the middle');
+  await tap(page, 'Star Table');
+  await tap(page, 'Lock in Star Table and share');
+  await expect(page.getByText('It is on.')).toBeVisible();
+  const mail = (await mailsTo(page, 'mia-tg@example.com')).at(-1)!;
+  const tg = (await telegramTo(page, 7002)).at(-1)!;
+  expect(tg.subject).toBe('It is on: Midnight poetry party');
+  expect(tg.subject).toBe(mail.subject);
+  expect(tg.text.split('\n').slice(0, -1)).toEqual(mail.text.split('\n').slice(0, -1));
+  expect(tg.text.split('\n').at(-1)).toBe('You asked for updates about this meetup. Send /stop to stop them.');
+
+  // Stopping Telegram leaves email on.
+  await mia.page.locator('.row').filter({ hasText: 'Updates also come on' }).getByRole('button', { name: 'Stop' }).click();
+  await mia.page.reload();
+  const updates = mia.page.locator('.card').filter({ hasText: 'Email updates go to' });
+  await expect(updates).toBeVisible();
+  await expect(mia.page.getByText(/Updates (also )?come on/)).toHaveCount(0);
 });

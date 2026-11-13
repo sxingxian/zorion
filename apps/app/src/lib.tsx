@@ -100,6 +100,8 @@ export interface Me {
   totp_enabled: boolean;
   has_password: boolean;
   notify: boolean;
+  telegram: boolean; // a Telegram chat is connected
+  telegram_ready: boolean; // Zorion's bot is set up
 }
 export const Session = createContext<{ me: Me | null; refresh: () => Promise<void> }>({ me: null, refresh: async () => {} });
 export const useSession = () => useContext(Session);

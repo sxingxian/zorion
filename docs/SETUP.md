@@ -138,7 +138,30 @@ Besides sign-in codes, Zorion sends:
 - **To hosts**: when the date answers, the food votes or the place votes are complete, and when a guest changes their reply after the plan is confirmed (at most one an hour per meetup). After confirmation the reply is the only thing a guest can change. A host can switch these off under Account.
 - **To guests who ask**: when the date is set, when the place vote opens, when the place is confirmed, and when the date moves. A guest leaves an address on the meetup page and must confirm it from their inbox first. Every email has a stop link.
 
-All of it goes through Resend with the same `RESEND_API_KEY` and `EMAIL_FROM`. Nothing else to set up.
+All of it goes through Resend with the same `RESEND_API_KEY` and `EMAIL_FROM`.
+
+### Telegram (optional)
+
+The same updates can go to Telegram, with the same subject (in bold) and the same lines as the email. Hosts connect under Account; guests choose "On Telegram" next to email on the meetup page. Sign-in codes stay on email only.
+
+1. In Telegram, message **@BotFather**, send `/newbot`, and pick a name and a username (for example `ZorionMeetBot`). It gives you a bot token.
+2. Make a webhook secret: `openssl rand -hex 32`.
+3. Store all three on the app:
+
+```
+cd apps/app
+npx wrangler secret put TELEGRAM_BOT_TOKEN
+npx wrangler secret put TELEGRAM_BOT_USERNAME      # the username, without @
+npx wrangler secret put TELEGRAM_WEBHOOK_SECRET
+```
+
+4. After deploying, point the bot at the app, from the repository root:
+
+```
+TELEGRAM_BOT_TOKEN='…' TELEGRAM_WEBHOOK_SECRET='…' APP_ORIGIN=https://zorionapp.midnightpoetry.studio npm run telegram:setup
+```
+
+Until the username is set, the Telegram choice does not appear anywhere. If someone blocks the bot, Zorion forgets their chat and stops trying.
 
 ## 9. Ads
 

@@ -43,6 +43,7 @@ export function Privacy() {
       <h3>If you join as a guest</h3>
       <p>No account. Zorion keeps the name you pick or type, your reply, your votes, your starting point (as above), and a protected form of your 4-character code. A cookie remembers your browser so you do not have to enter the code each visit.</p>
       <p>You can choose to leave an email address to hear when the date or the place is set. It is used only for that meetup and only after you confirm it from your inbox. The host and the other guests never see it. It is erased when you stop the emails or when the meetup ends, whichever comes first.</p>
+      <p>You can also choose to get the same updates on Telegram. Zorion then keeps the number Telegram uses for your chat with our bot, for that meetup only, and erases it when you send /stop, when you stop it on the meetup page, or when the meetup ends.</p>
       <h3>If you host</h3>
       <p>Your email address, the name shown on your meetups, your plan, and your sign-in details: a protected form of your password if you set one, and your authenticator key in encrypted form if you turn on two-step verification. If you buy Pro, Zorion keeps the customer and subscription references Stripe gives it. Card details go to Stripe and never reach Zorion.</p>
       <h3>For everyone</h3>
@@ -53,6 +54,7 @@ export function Privacy() {
       <ul>
         <li><strong>Cloudflare</strong> runs the site and the app. <strong>Neon</strong> stores the database.</li>
         <li><strong>Resend</strong> delivers our emails: sign-in codes and meetup news to hosts, and updates to guests who asked for them. It receives the address and the content of each email.</li>
+        <li><strong>Telegram</strong> delivers the same news and updates to people who chose to connect it. Telegram receives the content of each message, and Zorion keeps the number Telegram uses for your chat.</li>
         <li><strong>Stripe</strong> takes payment for Pro on its own pages.</li>
         <li><strong>Places search</strong> (OpenStreetMap services or Google Maps Platform) receives the middle point and the kind of food, to find places near it. It does not receive anyone's starting point or name.</li>
         <li><strong>Typed places.</strong> If you type a place instead of sharing your location, the words you type go from our server to the same map service to be looked up. Your name and network address do not go with them.</li>
@@ -71,7 +73,7 @@ export function Privacy() {
       <ul>
         <li><strong>Guests</strong> can change any reply, vote or starting point from the meetup link, using their code, until the host confirms the plan. After that only the reply can change; your starting point is still erased when the meetup ends, or sooner if you write to us. To have your name removed from a meetup, ask the host or write to us.</li>
         <li><strong>Hosts</strong> can download their data and delete their account from the Account screen in the app. Deleting an account deletes its meetups. Emails about your meetups can be switched off there too; sign-in codes cannot, because they are how you sign in.</li>
-        <li><strong>Email updates for guests</strong> stop from the link in any of the emails, or from the meetup page.</li>
+        <li><strong>Email updates for guests</strong> stop from the link in any of the emails, or from the meetup page. <strong>Telegram updates</strong> stop when you send /stop to the bot, from the meetup page, or, for hosts, under Account.</li>
         <li>You can refuse location permission and type a place instead, or reply without sharing a starting point at all. The middle is then worked out without you.</li>
         <li>Depending on where you live, the law may give you further rights over your data, such as access, correction or deletion. Write to us and we will act on them.</li>
       </ul>

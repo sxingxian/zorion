@@ -1,10 +1,12 @@
-// Emails beyond sign-in codes: news for the host, and opt-in updates for guests.
+// Updates beyond sign-in codes: news for the host, and opt-in updates for guests.
+// Each one goes by email, Telegram or both, with the same subject and the same lines.
 import type { Row } from '@zorion/db';
 import { one } from '@zorion/db';
 import type { C, Deps } from './core';
 import { sendEmail } from './core';
 import { hmac, safeEqual } from './crypto';
 import { type Loaded, load, summarise } from './meetups';
+import { sendTelegram } from './telegram';
 
 /** Sends after the response has gone out where the platform allows it, so nobody waits on an email. */
 export function later(c: C, work: Promise<unknown>): Promise<void> | void {
@@ -14,6 +16,24 @@ export function later(c: C, work: Promise<unknown>): Promise<void> | void {
   } catch {
     return safe.then(() => undefined); // no execution context (tests, the local demo): finish it now
   }
+}
+
+/** Where one person wants this update, and how each channel's last line tells them to stop. */
+interface Recipient {
+  email: string | null;
+  telegram: string | null;
+  stopEmail: string;
+  stopTelegram: string;
+}
+
+/** Sends one update to every channel the person chose. A failure on one channel does not stop the other. */
+async function deliver(deps: Deps, to: Recipient, subject: string, lines: string[]): Promise<void> {
+  const sends: Promise<void>[] = [];
+  if (to.email) sends.push(sendEmail(deps, to.email, subject, [...lines, '', to.stopEmail].join('\n')));
+  if (to.telegram) sends.push(sendTelegram(deps, to.telegram, subject, [...lines, '', to.stopTelegram].join('\n')));
+  const results = await Promise.allSettled(sends);
+  const failed = results.find((r): r is PromiseRejectedResult => r.status === 'rejected');
+  if (failed && results.every((r) => r.status === 'rejected')) throw failed.reason;
 }
 
 const whenText = (iso: string | null, timeZone: string): string => {
@@ -45,8 +65,14 @@ export type GuestEvent = 'dates' | 'categories' | 'place' | 'change';
 export async function tellHost(deps: Deps, meetupId: string, event: GuestEvent, detail = ''): Promise<void> {
   const L = await load(deps.db, { id: meetupId });
   if (!L) return;
-  const host = await one(deps.db, "select email, notify from users where id = $1 and status = 'active'", [L.m.host_id]);
-  if (!host?.notify) return;
+  const host = await one(deps.db, "select email, notify, telegram_chat_id from users where id = $1 and status = 'active'", [L.m.host_id]);
+  if (!host || (!host.notify && !host.telegram_chat_id)) return;
+  const to: Recipient = {
+    email: host.notify ? host.email : null,
+    telegram: host.telegram_chat_id,
+    stopEmail: footer(deps),
+    stopTelegram: `${footer(deps)}, or send /stop.`,
+  };
   const s = summarise(L);
   const guests = L.people.filter((p) => !p.is_host);
   const manage = `${deps.env.APP_ORIGIN}/m/${L.m.id}`;
@@ -71,14 +97,15 @@ export async function tellHost(deps: Deps, meetupId: string, event: GuestEvent, 
   } else if (event === 'change' && L.m.status === 'confirmed') {
     // At most one of these an hour per meetup, however many changes arrive.
     if (!(await claim(deps, L.m.id, 'change', 60))) return;
-    await sendEmail(deps, host.email, `A guest changed their reply for ${L.m.name}`, [detail || 'A guest changed their reply after the plan was confirmed.', `See what changed: ${manage}/changes`, '', footer(deps)].join('\n'));
+    await deliver(deps, to, `A guest changed their reply for ${L.m.name}`, [detail || 'A guest changed their reply after the plan was confirmed.', `See what changed: ${manage}/changes`]);
     return;
   }
   if (!kind || !(await claim(deps, L.m.id, kind))) return;
-  await sendEmail(deps, host.email, subject, [...lines, '', footer(deps)].join('\n'));
+  await deliver(deps, to, subject, lines);
 }
 
 const footer = (deps: Deps): string => `You get these because you host on Zorion. Switch them off under Account: ${deps.env.APP_ORIGIN}/account`;
+// The Telegram footer adds ", or send /stop." to the same sentence.
 
 // ---------- to guests who asked ----------
 
@@ -105,11 +132,11 @@ export async function sendConfirmation(deps: Deps, L: Loaded, p: Row): Promise<v
 
 export type HostEvent = 'date_set' | 'place_vote' | 'confirmed' | 'date_moved' | 'date_moved_cleared';
 
-/** Called after the host moves the meetup on. Goes only to guests who confirmed an address. */
+/** Called after the host moves the meetup on. Goes only to guests who confirmed an address or connected Telegram. */
 export async function tellGuests(deps: Deps, meetupId: string, event: HostEvent): Promise<void> {
   const L = await load(deps.db, { id: meetupId });
   if (!L) return;
-  const to = L.people.filter((p) => !p.is_host && p.email && p.email_confirmed && (p.rsvp !== 'no' || event.startsWith('date_moved')));
+  const to = L.people.filter((p) => !p.is_host && ((p.email && p.email_confirmed) || p.telegram_chat_id) && (p.rsvp !== 'no' || event.startsWith('date_moved')));
   if (to.length === 0) return;
   const link = `${deps.env.APP_ORIGIN}/j/${L.m.link_token}`;
   const when = whenText(L.m.starts_at, L.m.time_zone);
@@ -122,5 +149,10 @@ export async function tellGuests(deps: Deps, meetupId: string, event: HostEvent)
     date_moved_cleared: [`New date for ${L.m.name}: ${when}`, ['The host moved the date and is asking everyone to reply again.', `Reply: ${link}`]],
   };
   const [subject, lines] = say[event];
-  await Promise.allSettled(to.map(async (p) => sendEmail(deps, p.email, subject, [`Hi ${p.name},`, '', ...lines, '', `You asked for updates about this meetup. Stop them: ${link}?stop=${await emailToken(deps, p)}`].join('\n'))));
+  await Promise.allSettled(to.map(async (p) => deliver(deps, {
+    email: p.email && p.email_confirmed ? p.email : null,
+    telegram: p.telegram_chat_id,
+    stopEmail: p.email ? `You asked for updates about this meetup. Stop them: ${link}?stop=${await emailToken(deps, p)}` : '',
+    stopTelegram: 'You asked for updates about this meetup. Send /stop to stop them.',
+  }, subject, [`Hi ${p.name},`, '', ...lines])));
 }

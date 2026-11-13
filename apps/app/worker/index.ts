@@ -5,6 +5,7 @@ import { type App, type Deps, type Env, Fail, isProd, loadSession } from './core
 import { ads, billing, cleanUp, webhooks } from './extras';
 import { guest } from './guest';
 import { catalog, meetups } from './meetups';
+import { telegramWebhook } from './telegram';
 
 const outbox: Deps['outbox'] = [];
 
@@ -37,6 +38,7 @@ export function createApp(overrides: Partial<Deps> = {}) {
   app.route('/api/meetups', meetups);
   app.route('/api/g', guest);
   app.route('/api/billing', billing);
+  app.route('/api/webhooks/telegram', telegramWebhook);
   app.route('/api/webhooks', webhooks);
   app.route('/api/ads', ads);
   app.route('/api', catalog);

@@ -25,6 +25,7 @@ The product rules and screen designs live in the Zorion project on claude.ai ("Z
 
 - Emails beyond sign-in codes: news for hosts, and opt-in updates for guests.
 - Free routed trip times through an OSRM server or openrouteservice.
+- Telegram as a second channel for the same updates as email, for hosts and guests.
 
 ## Not built yet
 

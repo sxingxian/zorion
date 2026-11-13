@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { LIMITS } from '@zorion/core';
 import { type Me, type ModeChoice, api, navigate, useAction, useSession } from './lib';
 import { Btn, Check, Chip, Codes, Facts, Field, Header, Mascot, Note, Oops, Seg, Switch, Toast } from './ui';
+import { TelegramLink } from './updates';
 
 /** The sign-in key as a QR code. Drawn on this device, so the key is never sent to an image service. */
 function QrCode({ text }: { text: string }) {
@@ -39,6 +40,16 @@ export function Account({ me, modeChoice, setMode }: { me: Me; modeChoice: ModeC
   const [recovery, setRecovery] = useState<string[] | null>(null);
   const [confirm, setConfirm] = useState('');
   const [toast, setToast] = useState<string | null>(null);
+  const [tgLink, setTgLink] = useState<string | null>(null);
+  // While a Telegram link is open, check again when the host comes back from Telegram.
+  useEffect(() => {
+    if (!tgLink) return;
+    const back = () => { if (document.visibilityState === 'visible') refresh(); };
+    document.addEventListener('visibilitychange', back);
+    const t = setInterval(back, 5000);
+    return () => { document.removeEventListener('visibilitychange', back); clearInterval(t); };
+  }, [tgLink, refresh]);
+  useEffect(() => { if (me.telegram) setTgLink(null); }, [me.telegram]);
   const pro = me.plan === 'pro';
   const go = (v: typeof view) => { clear(); setCode(''); setView(v); };
   const patch = (body: unknown) => run(async () => { await api('PATCH', '/account', body); await refresh(); });
@@ -144,7 +155,17 @@ export function Account({ me, modeChoice, setMode }: { me: Me; modeChoice: ModeC
         </div>
         <div className="row" style={{ alignItems: 'flex-end' }}><div className="grow"><Field label="Your name on meetups" value={name} max={LIMITS.inviteeName} onChange={setName} /></div><button className="btn second" style={{ width: 'auto', minHeight: 52 }} disabled={busy || !name.trim() || name.trim() === me.display_name} onClick={async () => (await patch({ displayName: name })) && setToast('Name saved')}>Save</button></div>
         <Oops>{error}</Oops>
-        <Switch on={me.notify} title="Email me about my meetups" meta="When a vote is complete, or a guest changes a choice after the plan is set." onChange={(notify) => run(async () => { await api('PATCH', '/account', { notify }); await refresh(); })} />
+        <Switch on={me.notify} title="Email me about my meetups" meta="When a vote is complete, or a guest changes their reply after the plan is set." onChange={(notify) => run(async () => { await api('PATCH', '/account', { notify }); await refresh(); })} />
+        {me.telegram_ready && (tgLink && !me.telegram
+          ? <TelegramLink url={tgLink} onCancel={() => setTgLink(null)} />
+          : (
+            <div className="switch" style={{ cursor: 'default' }}>
+              <span className="grow stack" style={{ gap: 0 }}><strong style={{ fontWeight: 800 }}>Telegram</strong><span className="small">{me.telegram ? 'Connected. The same news comes there too.' : 'Get the same news on Telegram.'}</span></span>
+              {me.telegram
+                ? <button type="button" className="btn second" style={{ width: 'auto', minHeight: 44, fontSize: 14 }} disabled={busy} onClick={() => run(async () => { await api('POST', '/account/telegram/stop', {}); await refresh(); })}>Disconnect</button>
+                : <button type="button" className="btn second" style={{ width: 'auto', minHeight: 44, fontSize: 14 }} disabled={busy} onClick={() => run(async () => setTgLink((await api('POST', '/account/telegram', {})).url))}>Connect</button>}
+            </div>
+          ))}
         <div className="card" style={{ padding: '0 14px' }}>
           <button className="person" style={{ minHeight: 48 }} onClick={() => go('password')}><span className="grow" style={{ fontWeight: 700 }}>Password</span><span className="small">{me.has_password ? 'Set' : 'Not set'}</span></button>
           <button className="person" style={{ minHeight: 48 }} onClick={() => go('two_step')}><span className="grow" style={{ fontWeight: 700 }}>Two-step verification</span><span className="small">{me.totp_enabled ? 'Authenticator on' : 'Off'}</span></button>

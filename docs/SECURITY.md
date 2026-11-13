@@ -45,6 +45,13 @@ Card details never reach Zorion. Checkout and the customer portal are Stripe's o
 - Confirm and stop links carry a keyed code derived from the guest and the address. Nothing extra is stored, and the link dies when the address changes.
 - Emails are sent after the response has gone out, so a slow or failing mail service never blocks a vote.
 
+## Telegram
+
+- Off unless a person connects it. Connecting uses a one-time link that opens Zorion's bot; pressing Start there proves the person controls that chat. The link's code is stored only as a hash, lasts 30 minutes, works once, and a new one replaces the old. Ten links an hour per person.
+- The bot's webhook accepts a request only when it carries the secret given to Telegram, compared in constant time. Group chats are ignored, so updates only ever go to a private chat.
+- The chat is never shown to the host or to other guests. A guest's chat is erased when the meetup ends; anyone can erase theirs with `/stop`, from the meetup page or under Account. If a person blocks the bot, the chat is erased.
+- Messages carry the same content as the email: names, the meetup, the place and links. Never a sign-in code.
+
 ## Requests
 
 - Every state-changing request must carry the `X-Zorion` header and come from the app's own origin, which browsers do not allow other sites to do.

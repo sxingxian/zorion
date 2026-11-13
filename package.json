@@ -16,7 +16,8 @@
     "migrate": "node packages/db/migrate.mjs",
     "check": "npm run typecheck && npm test && npm run build",
     "demo": "tsx scripts/demo.ts",
-    "e2e": "playwright test -c e2e/playwright.config.ts"
+    "e2e": "playwright test -c e2e/playwright.config.ts",
+    "telegram:setup": "node scripts/telegram-setup.mjs"
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.5.16",
