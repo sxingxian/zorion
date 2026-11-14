@@ -1,4 +1,5 @@
 import { type CSSProperties, useEffect, useRef, useState } from 'react';
+import { CityPlan } from './cityplan';
 import { ART, DEFAULT_PLANS, ICONS, type Plans, TRAVEL_LABEL, formatPrice } from '@zorion/core';
 
 // The landing page, built to the approved mockup: a map where everyone's route meets in the middle,
@@ -34,7 +35,6 @@ const Pins = ({ pins, r, size }: { pins: Array<[number, number, string]>; r: num
 const spot = (x: number, y: number, mx: number, my: number) => ({ '--x': `${x}%`, '--y': `${y}%`, '--mx': `${mx}%`, '--my': `${my}%` }) as CSSProperties;
 const routes = (pins: Array<[number, number, string]>, mx: number, my: number) => pins.map(([x, y]) => `M${x} ${y} H${mx} V${my}`).join(' ');
 
-const HERO_PINS: Array<[number, number, string]> = [[170, 190, 'M'], [1280, 170, 'J'], [120, 560, 'S'], [1330, 600, 'L'], [430, 800, 'P'], [1020, 820, 'D']];
 const MOBILE_PINS: Array<[number, number, string]> = [[110, 66, 'M'], [345, 58, 'A'], [40, 241, 'S'], [355, 248, 'L'], [125, 343, 'P'], [270, 339, 'D']];
 const MIDDLE_PINS: Array<[number, number, string, string]> = [[640, 120, 'M', 'Maya · 16 min'], [1330, 130, 'J', 'Jonah · 15 min'], [590, 420, 'S', 'Sofia · 15 min'], [1350, 450, 'L', 'Leo · 13 min'], [790, 650, 'P', 'Priya · 16 min'], [1190, 660, 'D', 'Dev · 16 min']];
 // [icon, label, desktop x%, y%, phone x%, y%, picked]
@@ -88,8 +88,8 @@ export function Landing() {
     return () => { live = false; stop(); };
   }, []);
 
-  // The hero map becomes a small 3D city once the page has settled. The drawn map stays underneath as
-  // the fallback: for reduced motion, for devices without WebGL, and until the first frame is drawn.
+  // The hero map is one city: drawn flat first (and for reduced motion or no WebGL), then the 3D scene
+  // takes over from that exact view, rises into 3D, and settles back to flat as it scrolls away.
   const hero = useRef<HTMLElement>(null);
   const stage = useRef<HTMLDivElement>(null);
   const phoneStage = useRef<HTMLDivElement>(null);
@@ -133,13 +133,7 @@ export function Landing() {
     <div className="lp" ref={root}>
       {/* ---------- hero ---------- */}
       <section className="lp-hero" ref={hero}>
-        <svg className="lp-hero-map" viewBox="0 0 1440 940" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
-          <Streets w={1440} h={940} />
-          <path className="dash" d={routes(HERO_PINS, 720, 770)} fill="none" stroke="#0b0b0d" strokeWidth="4" strokeDasharray="10 10" strokeLinecap="round" strokeLinejoin="round" />
-          <circle className="ping" cx="720" cy="770" r="56" fill="#ffa6fc" />
-          <circle className="ping late" cx="720" cy="770" r="56" fill="#ffa6fc" />
-          <Pins pins={HERO_PINS} r={24} size={18} />
-        </svg>
+        <CityPlan className="lp-hero-map" target={pig} />
         <div className="lp-city" ref={stage} />
         <div className="lp-glow" aria-hidden="true" />
         <header className="lp-top">
@@ -155,15 +149,7 @@ export function Landing() {
         </div>
         {/* Phones get the map as its own block under the words, like the mockup. */}
         <div className="lp-hero-mobile">
-          <svg viewBox="0 0 390 380" preserveAspectRatio="xMidYMid slice" role="img" aria-label="Map: six friends walking to the fair middle">
-            <Streets w={390} h={380} />
-            <circle className="pulse" cx="195" cy="187" r="125" fill="url(#lpg)" />
-            <defs><radialGradient id="lpg"><stop offset="0%" stopColor="#ffa6fc" stopOpacity="0.6" /><stop offset="60%" stopColor="#ffa6fc" stopOpacity="0.2" /><stop offset="100%" stopColor="#ffa6fc" stopOpacity="0" /></radialGradient></defs>
-            <path className="dash" d={routes(MOBILE_PINS, 195, 187)} fill="none" stroke="#0b0b0d" strokeWidth="3" strokeDasharray="7 7" strokeLinecap="round" strokeLinejoin="round" />
-            <Pins pins={MOBILE_PINS} r={15} size={12} />
-            <circle cx="195" cy="187" r="27" fill="#fff" stroke="#0b0b0d" strokeWidth="2" />
-            <g transform="translate(176 169) scale(0.32)" dangerouslySetInnerHTML={{ __html: ART.headChef! }} />
-          </svg>
+          <CityPlan className="lp-plan" target={phonePig} />
           <div className="lp-city" ref={phoneStage} />
           <div className="bob" ref={phonePig}><Pig w={130} label="Zorion the black pig" /></div>
         </div>

@@ -24,7 +24,7 @@ test('landing page on a phone shows the map under the words, and with reduced mo
   page.on('request', (r) => { if (r.resourceType() === 'script') scripts.push(r.url()); });
   await page.goto(SITE);
   await page.waitForTimeout(1500);
-  await expect(page.locator('.lp-hero-mobile > svg').first()).toBeVisible(); // the drawn map stays
+  await expect(page.locator('.lp-hero-mobile .lp-plan')).toBeVisible(); // the drawn plan of the same city
   await expect(page.locator('.lp-city canvas')).toHaveCount(0);
   await expect(page.locator('.lp-hero-map')).toBeHidden();
   expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
