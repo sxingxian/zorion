@@ -109,7 +109,7 @@ async function connect(deps: Deps, chatId: string, token: string): Promise<void>
 // ---------- connecting the bot to the app ----------
 
 /**
- * Points the bot's webhook at this app, so nobody has to run a set-up command. Runs with the hourly job.
+ * Points the bot's webhook at this app, so nobody has to run a set-up command. Runs with the hourly housekeeping.
  * Telegram does not say which secret a webhook uses, so a hash of the one we gave it is remembered and the
  * webhook is set again whenever the address or the secret changes.
  */

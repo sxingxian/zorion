@@ -4,7 +4,7 @@ The product rules and screen designs live in the Zorion project on claude.ai ("Z
 
 ## Built
 
-- **App** (`apps/app`): host sign-in with two-step, create a meetup with a fixed date or a date vote, people list, host-first voting, guest link with no account, guest codes, RSVP, fair middle, 5 to 8 closest places, shortlist and place vote, confirmation with directions, host edits (a new date keeps replies unless the host clears them), change log for the host, account, themes, light and dark, Pro checkout through Stripe, own categories for Pro, sponsored slots, hourly clean-up. Phone, tablet and desktop layouts. Installable.
+- **App** (`apps/app`): host sign-in with two-step, create a meetup with a fixed date or a date vote, people list, host-first voting, guest link with no account, guest codes, RSVP, fair middle, 5 to 8 closest places, shortlist and place vote, confirmation with directions, host edits (a new date keeps replies unless the host clears them), change log for the host, account, themes, light and dark, Pro checkout through Stripe, own categories for Pro, sponsored slots, hourly housekeeping that runs on normal traffic (no cron trigger). Phone, tablet and desktop layouts. Installable.
 - **Site** (`apps/site`): landing page, admin portal (overview, categories and rules, sponsored and ads, users and plans, access and audit).
 - **Shared**: rules engine (`packages/core`), database schema and migrations (`packages/db`), crypto (`packages/server`).
 
