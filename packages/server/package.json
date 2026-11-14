@@ -6,6 +6,6 @@
   "exports": {
     "./crypto": "./src/crypto.ts",
     "./settings": "./src/settings.ts",
-    "./google": "./src/google.ts"
+    "./usage": "./src/usage.ts"
   }
 }

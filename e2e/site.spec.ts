@@ -64,7 +64,10 @@ test('admin: password, then authenticator; a setting change lands in the audit l
   await page.getByLabel('Trip times come from').selectOption('google');
   await expect(page.getByRole('status')).toHaveText('Saved');
   await expect(page.getByLabel('Google key')).toBeVisible(); // the key field appears under the choice that needs it
-  await expect(page.getByText("Until a key is connected, trip times use Zorion's estimate.")).toBeVisible();
+  await expect(page.getByText('Until a key is connected, Zorion uses the free services.')).toBeVisible();
+  await expect(page.getByLabel('Order Zorion tries')).toContainText("OpenStreetMap routing → Zorion's estimate"); // Google is skipped until its key is connected
+  await expect(page.getByRole('heading', { name: 'Free services' })).toBeVisible();
+  await expect(page.getByLabel('OneMap email')).toBeVisible();
   await page.getByLabel('Trip times come from').selectOption('estimate'); // leave the demo as it was
   await page.getByRole('link', { name: 'Admins', exact: true }).click();
   await expect(page.getByText('Changed trip times to Google routes').first()).toBeVisible(); // the log reads in plain words

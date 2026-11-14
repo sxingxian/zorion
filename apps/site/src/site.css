@@ -303,3 +303,7 @@ button, input, select { font: inherit; color: inherit; }
 .errpage p { margin: 0; color: var(--muted); }
 .errpage .btn, .errbtn { min-height: 48px; display: inline-flex; align-items: center; justify-content: center; padding: 0 20px; border: 0; border-radius: 14px; background: var(--pink); color: var(--ink); font-weight: 800; text-decoration: none; cursor: pointer; }
 .adm .errcard { align-items: center; text-align: center; padding: 40px 20px; }
+.adm .order { display: flex; flex-direction: column; gap: 8px; padding: 14px 16px; border-radius: 14px; border: 1px solid #ececf0; font-size: 14px; }
+.adm .order .line > span:last-child { font-weight: 600; }
+.adm .sub-h { font-size: 15px; font-weight: 800; margin: 12px 0 0; }
+@media (max-width: 760px) { .adm .order .line { flex-direction: column; align-items: flex-start; gap: 2px; } .adm .order .line > span:last-child { text-align: left; } }

@@ -1,6 +1,7 @@
 import { type ReactNode, useCallback, useEffect, useState } from 'react';
 import { LIMITS } from '@zorion/core';
 import { CrewMap } from './map';
+import { Credits } from './sources';
 import { StartPicker } from './start';
 import { Updates } from './updates';
 import { ApiError, Link, api, useAction, when } from './lib';
@@ -224,7 +225,7 @@ export function GuestFlow({ token, m, setM }: { token: string; m: M; setM: (m: M
           <h1 className="display h1">Where are you starting from?</h1>
           {typing ? (
             <>
-              <StartPicker saving={busy} search={async (q) => (await api('POST', `/g/${token}/start-search`, { q })).results} onPick={(at) => run(async () => { setM((await api('POST', `/g/${token}/location`, at)).meetup); setTyping(false); done(); })} />
+              <StartPicker saving={busy} search={async (q) => (await api('POST', `/g/${token}/start-search`, { q }))} onPick={(at) => run(async () => { setM((await api('POST', `/g/${token}/location`, at)).meetup); setTyping(false); done(); })} />
               <Oops>{error}</Oops>
               <Btn kind="text" className="push" onClick={() => { clear(); setTyping(false); }}>Use my location instead</Btn>
             </>
@@ -267,6 +268,7 @@ export function GuestFlow({ token, m, setM }: { token: string; m: M; setM: (m: M
         <main className="screen">
           <h1 className="display h1">Pick a place</h1>
           <div className="stack" role="radiogroup" aria-label="Place">{m.places.map((p: M) => <Pick key={p.id} radio on={sel === p.id} onClick={() => setPickId(p.id)} title={p.name} meta={`${p.rating ? `★ ${p.rating} · ` : ''}${p.myMinutes ? `${p.myMinutes} min away` : (p.address ?? '')}`} />)}</div>
+          <Credits places={m.places} times={m.places.some((p: M) => p.myMinutes)} />
           <Oops>{error}</Oops>
           <Btn className="push" busy={busy} disabled={!sel} onClick={async () => (await call('/place', { id: sel })) && (setPickId(''), done())}>{editing ? 'Save' : 'Vote'}</Btn>
         </main>

@@ -1,6 +1,8 @@
 import type { Point } from '@zorion/core';
 import type { Deps } from './core';
-import { isGoogleRefusal, pauseGoogle, takeGoogle } from '@zorion/server/google';
+import { isGoogleRefusal, pauseGoogle, takeGoogle } from '@zorion/server/usage';
+import { geoapifyLookup } from './geoapify';
+import { onemapLookup } from './onemap';
 import { activeProvider } from './places';
 
 export interface StartResult extends Point {
@@ -61,17 +63,36 @@ async function searchGoogleText(deps: Deps, q: string, near: Near): Promise<Star
     .map((p) => ({ label: [p.displayName?.text, p.formattedAddress].filter(Boolean).join(', ').slice(0, 120), lat: p.location!.latitude, lng: p.location!.longitude }));
 }
 
+export type LookupSource = 'google' | 'onemap' | 'geoapify' | 'osm';
+
 /**
  * Turns typed words ("Bugis MRT", a street, a postcode) into up to five places to start from.
  * The words go to the lookup service from Zorion's server, never from the person's browser,
- * so the service does not learn who asked.
+ * so the service does not learn who asked. Services are tried in order: Google if the admin chose it
+ * (while its free allowance lasts), OneMap for Singapore, Geoapify, then OpenStreetMap. The first
+ * with results answers, and the answer says which it was.
  */
-export async function findStart(deps: Deps, raw: string, near: Near): Promise<StartResult[]> {
+export async function findStart(deps: Deps, raw: string, near: Near): Promise<{ results: StartResult[]; source: LookupSource | null }> {
   const q = tidy(raw);
-  if (q.length < 3) return [];
-  // Google while the month's free allowance lasts; the free OpenStreetMap lookup otherwise, or if Google fails.
-  if ((await activeProvider(deps)) === 'google' && (await takeGoogle(deps.db, 'lookup', 1, deps.now()))) {
-    try { return await searchGoogleText(deps, q, near); } catch { /* fall through to the free lookup */ }
+  if (q.length < 3) return { results: [], source: null };
+  const inSingapore = !near.country || near.country.toUpperCase() === 'SG';
+  const ladder: Array<[LookupSource, () => Promise<StartResult[]>]> = [];
+  if ((await activeProvider(deps)) === 'google') ladder.push(['google', async () => {
+    if (!(await takeGoogle(deps.db, 'lookup', 1, deps.now()))) throw new Error('Google allowance used');
+    return searchGoogleText(deps, q, near);
+  }]);
+  if (inSingapore) ladder.push(['onemap', () => onemapLookup(deps, q)]);
+  if (deps.env.GEOAPIFY_KEY) ladder.push(['geoapify', () => geoapifyLookup(deps, q, near)]);
+  ladder.push(['osm', () => searchNominatim(deps, q, near)]);
+  let lastError: unknown = null;
+  for (const [source, run] of ladder) {
+    try {
+      const results = await run();
+      if (results.length) return { results, source };
+    } catch (err) {
+      lastError = err;
+    }
   }
-  return searchNominatim(deps, q, near);
+  if (lastError) throw lastError;
+  return { results: [], source: null };
 }

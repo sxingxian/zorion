@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { testDb } from '@zorion/db/testing';
-import { billingMonth, googleUsage, takeGoogle } from '@zorion/server/google';
+import { billingMonth, googleUsage, takeGoogle } from '@zorion/server/usage';
 import type { Deps, Env } from './core';
 import { findStart } from './geocode';
 import { findPlaces } from './places';
-import { routeMatrix } from './routing';
+import { routeMatrix, routeWithLadder, routingLadder } from './routing';
 
 const env: Env = { DATABASE_URL: '', APP_ORIGIN: 'http://localhost:5173', SITE_ORIGIN: 'http://localhost:5174', PEPPER: 'p', TOTP_KEY: btoa('0123456789abcdef0123456789abcdef'), ENVIRONMENT: 'development', GOOGLE_PLACES_KEY: ['AIza', 'SyTestTestTestTestTestTestTestTest'].join(''), OSRM_FOOT_URL: 'https://osrm.example/foot' };
 const now = new Date('2026-11-14T04:00:00Z');
@@ -55,7 +55,8 @@ describe("Google's free allowance", () => {
     expect((await findPlaces(deps, { lat: 1.3, lng: 103.85 }, cat)).provider).toBe('osm');
     expect((await googleUsage(db, now)).pausedUntil).not.toBeNull();
     const before = calls.filter((u) => u.includes('googleapis')).length;
-    expect((await findStart(deps, 'Bugis MRT', {}))[0]!.label).toBe('Bugis, Singapore'); // free lookup, Google not even asked
+    const start = await findStart(deps, 'Bugis MRT', { country: 'MY' });
+    expect(start).toMatchObject({ source: 'osm', results: [{ label: 'Bugis, Singapore' }] }); // free lookup, Google not even asked
     expect(calls.filter((u) => u.includes('googleapis')).length).toBe(before);
   });
 
@@ -66,8 +67,9 @@ describe("Google's free allowance", () => {
     expect(await routeMatrix(deps, 'google', from, to, 'walk', null)).toEqual([[5, 7]]);
     expect((await googleUsage(db, now)).services.find((s) => s.key === 'routes')!.used).toBe(2);
     await db.query("update usage_counters set count = 9000 where key = 'google:routes:2026-11'");
-    expect(await routeMatrix(deps, 'google', from, to, 'walk', null)).toEqual([[10, 15]]);
+    expect(await routingLadder(deps, 'walk')).toEqual(['google', 'osrm']);
+    expect(await routeWithLadder(deps, await routingLadder(deps, 'walk'), from, to, 'walk', null)).toEqual({ matrix: [[10, 15]], source: 'osrm' });
     expect(calls.at(-1)).toContain('osrm.example');
-    await expect(routeMatrix(deps, 'google', from, to, 'transit', null)).rejects.toThrow(); // no free transit: the caller uses the estimate
+    await expect(routeWithLadder(deps, await routingLadder(deps, 'transit'), from, to, 'transit', null)).rejects.toThrow(); // no free transit set up: the caller uses the estimate
   });
 });

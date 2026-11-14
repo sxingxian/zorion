@@ -95,7 +95,9 @@ async function guestView(c: C, L: Loaded, who: Row | null, dateChange: { replies
     winner,
     places: visible.map((p) => ({
       id: p.id, name: p.name, address: p.address, rating: p.rating, openNow: p.open_now,
-      myMinutes: who ? tripMinutes(L, who, p) : null, routed: !!p.routed,
+      myMinutes: who ? tripMinutes(L, who, p) : null, routed: !!p.routed, source: p.provider,
+      // Who gave this person's own trip time: null means it's Zorion's estimate.
+      routedBy: who && p.routed && L.times.some((t) => t.place_id === p.id && t.participant_id === who.id) ? p.routed_by : null,
       ...(L.m.status === 'confirmed' ? { lat: p.lat, lng: p.lng, directions: directionsUrl({ lat: p.lat, lng: p.lng }, L.m.travel_mode) } : {}),
     })),
     dateChange,
@@ -231,7 +233,7 @@ guest.post('/:token/start-search', async (c) => {
   await me(c, L);
   replyOnly(L);
   const { q } = await body(c, schemas.startSearch);
-  return c.json({ results: await lookupStart(c, q) });
+  return c.json(await lookupStart(c, q)); // { results, source }
 });
 
 guest.post('/:token/categories', async (c) => {

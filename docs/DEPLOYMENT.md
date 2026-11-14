@@ -156,19 +156,32 @@ The Workers' first deploy creates both records (section 2). Keep the orange-clou
 2. **APIs & Services → Credentials → Create credentials → API key**. Edit it: under *API restrictions*, allow only Places API (New) and Routes API. Leave *Application restrictions* at None (Zorion calls Google from its server). Set a budget alert under Billing.
 3. Admin portal → **Categories** → *Places come from* → Google Places. Paste the key in the field that appears and press **Connect**. Zorion checks it with one real search (and one route, to see whether Routes API is on), then asks for your authenticator code.
 
-**Staying inside Google's free allowance.** Each Google service has a free amount each month (Pacific time): 1,000 place searches of each kind (they ask for rating and opening hours), 5,000 starting-place lookups, and 10,000 trip-time pairs. Zorion counts its own calls, and at 90% of a free amount it switches that service to the free one: OpenStreetMap for places and lookups, OpenStreetMap routing (or Zorion's estimate, and always for transit) for trip times. It switches back when the month resets. If Google refuses a request (quota or billing), Zorion uses the free services for an hour. The Categories page shows this month's use and lets you pick when to switch, or keep using Google and pay. Zorion can only count its own calls: if other apps share your Google billing account, pick a lower share, and set a budget alert in Google Cloud either way.
+**Staying inside the free allowances.** Zorion counts its own calls to every service with a free limit and moves on to the next service before a limit is passed. Google's month runs on Pacific time: 1,000 place searches of each kind (they ask for rating and opening hours), 5,000 starting-place lookups and 10,000 trip-time pairs. By default Zorion stops using a Google service at 90% of its free amount and switches back when the month resets; the Categories page shows this month's use and lets you pick when to switch, or keep using Google and pay. Geoapify (3,000 credits) and openrouteservice (500 route tables) count by the UTC day. Any service that refuses a request (quota, key or billing) is skipped for an hour. Zorion can only count its own calls: if other apps share your Google billing account, pick a lower share, and set a budget alert in Google Cloud either way.
 
-A typed starting place ("Bugis MRT") is looked up by the same service. The public OpenStreetMap servers allow light use only; for real traffic choose Google, or point `OVERPASS_URL` and `NOMINATIM_URL` (variables on `zorion-app`) at your own servers.
+**The order Zorion tries.** The admin's choice comes first, then the free services that are connected. A paid service is only used when it is the choice. The Categories page shows the order with what is connected right now.
 
-**Trip times** are Zorion's own estimate by default, and no starting point leaves Zorion. Admin portal → Categories → *Trip times come from* switches to real routes. A choice that needs a key shows its key field right under it; until the key is connected, the page says trip times use the estimate.
+| | Order |
+| --- | --- |
+| Places | Your choice → Geoapify → OpenStreetMap |
+| Starting places | Google (if places come from Google) → OneMap (Singapore only) → Geoapify → OpenStreetMap |
+| Walking and cycling times | Your choice → openrouteservice → Geoapify → OpenStreetMap routing → OneMap → Zorion's estimate |
+| Transit times | Your choice (Google or OneMap) → OneMap → Zorion's estimate |
 
-| Choice | Cost | Covers | Set-up |
+If trip times are set to Zorion's estimate, nothing is routed. The app shows where each list came from ("Places: Geoapify · Trip times: OneMap"), with the credit lines OpenStreetMap, Geoapify and OneMap ask for, and the starting-place picker says which service gave its matches.
+
+The public OpenStreetMap servers allow light use only; connecting Geoapify takes most of that load. You can also point `OVERPASS_URL` and `NOMINATIM_URL` (variables on `zorion-app`) at your own servers.
+
+**Trip times** are Zorion's own estimate by default, and no starting point leaves Zorion. Admin portal → Categories → *Trip times come from* switches to real routes. The free services are listed under *Free services* on the same page; connect as many as you like.
+
+| Service | Cost | Covers | Set-up |
 | --- | --- | --- | --- |
-| OpenStreetMap routing | Free, no key | Walking, cycling | Nothing: `OSRM_FOOT_URL` and `OSRM_BIKE_URL` in `apps/app/wrangler.jsonc` point at the public FOSSGIS servers |
-| openrouteservice | Free plan with a key | Walking, cycling | Sign up at openrouteservice.org, copy the key from *API keys*, and connect it on the Categories page |
-| Google routes | Paid per trip | Walking, cycling, transit | Uses the Google key above, with **Routes API** turned on. If it was off, turn it on and press **Check again** |
+| OneMap | Free, with an account | Singapore: starting places; walking, cycling and public transport times | Register at onemap.gov.sg, then enter the email and password under *Free services → OneMap*. Zorion signs in to check it. OneMap sends one trip per request, so Zorion routes it only for up to 60 person–place pairs. Read OneMap's terms of use before going live, and keep the credit line the app shows |
+| Geoapify | Free plan with a key (3,000 credits a day) | Places, starting places, walking and cycling times | Sign up at myprojects.geoapify.com, create a project, copy its API key, and connect it under *Free services → Geoapify*. A place search costs about 3 credits; a trip-time table for 6 people and 10 places costs 60 |
+| openrouteservice | Free plan with a key (500 tables a day) | Walking, cycling | Sign up at openrouteservice.org, copy the key from *API keys*, and connect it under *Free services* |
+| OpenStreetMap routing | Free, no key | Walking, cycling | Nothing: `OSRM_FOOT_URL` and `OSRM_BIKE_URL` in `apps/app/wrangler.jsonc` point at the public FOSSGIS servers, which allow one request a second; Zorion keeps to that and moves on for any call it skips |
+| Google routes | Paid past the free allowance | Walking, cycling, transit | Uses the Google key above, with **Routes API** turned on. If it was off, turn it on and press **Check again** |
 
-Every routed choice sends starting points (with no names) to that service; the privacy page says so. The public OSRM servers are run by volunteers, allow one request a second and promise no availability; Zorion keeps to that and falls back to the estimate for any call it skips. openrouteservice's free plan allows 500 matrix requests a day. Transit is only routed by Google.
+Every routed service receives starting points and places, never names; the privacy page lists them.
 
 ## Telegram updates (optional, free)
 

@@ -27,6 +27,7 @@ function browser(app: ReturnType<typeof createApp>, ip = '198.51.100.1') {
 const calls: Array<{ url: string; body: any; headers: Record<string, string> }> = [];
 let routesDown = false;
 let osrmDown = false;
+let orsDown = false;
 const fakeFetch = (async (input: string, init?: RequestInit) => {
   const url = String(input);
   const headers = Object.fromEntries(new Headers(init?.headers).entries());
@@ -58,6 +59,7 @@ const fakeFetch = (async (input: string, init?: RequestInit) => {
     return Response.json({ code: 'Ok', durations: src.map((_, o) => dst.map((_, d) => (o === 0 && d === 0 ? null : (30 - d * 2 + o) * 60))) });
   }
   if (url.includes('openrouteservice')) {
+    if (orsDown) return new Response('no', { status: 503 });
     return Response.json({ durations: body.sources.map((_: number, o: number) => body.destinations.map((_: number, d: number) => (30 - d * 2 + o) * 60)) });
   }
   throw new Error(`unexpected fetch ${url}`);
@@ -168,29 +170,30 @@ describe('routed travel times', () => {
     expect(await (deps.db as any).query('select count(*)::int as n from place_times')).toEqual([{ n: 7 }]); // the host's routed times remain (one pair had no route)
   });
 
-  it('when Google routes are down, the free OpenStreetMap routing takes over; when that is down too, the estimate', async () => {
-    routesDown = true; // a 503 is a glitch, not a refusal, so Google is not paused
-    await (deps.db as any).query("delete from throttles where key = 'osrm-gate'");
-    await newMeetup('Routes down');
-    await guest('POST', `/api/g/${token}/location`, { lat: 1.3, lng: 103.86 });
-    await h('POST', `/api/meetups/${id}/location`, { lat: 1.3, lng: 103.84 });
-    calls.length = 0;
-    let r = await h('POST', `/api/meetups/${id}/middle`, {});
-    expect(r.status).toBe(200);
-    expect(calls.some((c) => c.url.includes('/table/v1/'))).toBe(true);
-    expect(r.body.meetup.places.every((p: any) => p.routed === true)).toBe(true);
-
-    osrmDown = true;
-    try {
+  it('when Google routes are down, the free services take over in turn, then the estimate; each place says who gave its trip times', async () => {
+    const attempt = async (name: string) => {
       await (deps.db as any).query("delete from throttles where key = 'osrm-gate'");
-      await newMeetup('Both down');
+      await newMeetup(name);
       await guest('POST', `/api/g/${token}/location`, { lat: 1.3, lng: 103.86 });
       await h('POST', `/api/meetups/${id}/location`, { lat: 1.3, lng: 103.84 });
-      r = await h('POST', `/api/meetups/${id}/middle`, {});
+      const r = await h('POST', `/api/meetups/${id}/middle`, {});
       expect(r.status).toBe(200);
-      expect(r.body.meetup.places.every((p: any) => p.routed === false)).toBe(true);
+      return r.body.meetup.places as Array<{ routed: boolean; routedBy: string | null; source: string }>;
+    };
+    routesDown = true; // a 503 is a glitch, not a refusal, so Google is not paused
+    try {
+      let places = await attempt('Google down');
+      expect(places.every((p) => p.routed && p.routedBy === 'ors')).toBe(true);
+      orsDown = true;
+      places = await attempt('openrouteservice down too');
+      expect(places.every((p) => p.routed && p.routedBy === 'osrm')).toBe(true);
+      osrmDown = true;
+      places = await attempt('All down');
+      expect(places.every((p) => !p.routed && p.routedBy === null)).toBe(true);
+      expect(places[0]!.source).toBe('osm'); // where the places came from is kept apart from the trip times
     } finally {
       routesDown = false;
+      orsDown = false;
       osrmDown = false;
     }
   });
@@ -227,7 +230,7 @@ describe('routed travel times', () => {
     expect(r.body.meetup.places[0].name).toBe('Place 8');
     expect(r.body.meetup.places.every((p: any) => p.routed)).toBe(true);
 
-    // Straight away again, for another meetup: the gate holds the second call back and the estimate is used.
+    // Straight away again, for another meetup: the gate holds the second call back, so the next free service answers.
     await newMeetup('OSRM again');
     await guest('POST', `/api/g/${token}/location`, { lat: 1.3, lng: 103.86 });
     await h('POST', `/api/meetups/${id}/location`, { lat: 1.3, lng: 103.84 });
@@ -235,8 +238,7 @@ describe('routed travel times', () => {
     calls.length = 0;
     const again = await h('POST', `/api/meetups/${id}/middle`, {});
     expect(calls.some((c) => c.url.includes('/table/v1/'))).toBe(false);
-    expect(again.body.meetup.places.every((p: any) => p.routed === false)).toBe(true);
-    expect(again.body.meetup.places[0].name).toBe('Place 1');
+    expect(again.body.meetup.places.every((p: any) => p.routed && p.routedBy === 'ors')).toBe(true);
   });
 
   it('routes for free through openrouteservice with its key', async () => {
@@ -258,7 +260,7 @@ describe('routed travel times', () => {
   });
 
   it('knows which services can route which way of travelling', async () => {
-    const { activeRouting, canRoute } = await import('./routing');
+    const { activeRouting, canRoute, routingLadder } = await import('./routing');
     const full = { db: deps.db!, env, fetch: fakeFetch, now: deps.now!, outbox: [] } as Deps;
     expect(canRoute(full, 'osrm', 'walk')).toBe(true);
     expect(canRoute(full, 'osrm', 'cycle')).toBe(false); // no cycling server configured in this test
@@ -267,8 +269,11 @@ describe('routed travel times', () => {
     expect(canRoute(full, 'ors', 'transit')).toBe(false);
     expect(canRoute(full, 'google', 'transit')).toBe(true);
     expect(canRoute(full, 'estimate', 'walk')).toBe(false);
-    // A choice whose key is missing quietly becomes the estimate.
-    expect(await activeRouting({ ...full, env: { ...env, ORS_API_KEY: undefined } })).toBe('estimate');
     expect(await activeRouting(full)).toBe('ors');
+    // A choice whose key is missing is skipped; the free services that are set up follow in order.
+    expect(await routingLadder({ ...full, env: { ...env, ORS_API_KEY: undefined } }, 'walk')).toEqual(['osrm']);
+    expect(await routingLadder(full, 'walk')).toEqual(['ors', 'osrm']);
+    expect(await routingLadder(full, 'transit')).toEqual([]); // nothing free routes transit here: the estimate
+    expect(await routingLadder({ ...full, env: { ...env, ONEMAP_EMAIL: 'a@b.sg', ONEMAP_PASSWORD: 'x' } }, 'transit')).toEqual(['onemap']);
   });
 });

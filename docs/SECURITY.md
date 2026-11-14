@@ -15,7 +15,7 @@ Card details never reach Zorion. Checkout and the customer portal are Stripe's o
 - A person's coordinates are never sent to anyone else, including the host. Other screens get travel minutes only, and the drawn map places people on a ring by travel time.
 - Maps are drawn in the app. No ad network ever receives a position. The places search receives only the middle point.
 - Typing a place instead of sharing GPS: the typed words are looked up from Zorion's server, on a button press, so the map service sees neither the person's network address nor their name. Lookups are limited to 15 per network per ten minutes.
-- Routed trip times are off by default. When an admin switches them on, starting points and candidate places are sent to the chosen routing service (an OSRM server, openrouteservice or Google) with no names attached. This is the one case where a position leaves Zorion, and the privacy page says so.
+- Routed trip times are off by default. When an admin switches them on, starting points and candidate places are sent to the chosen routing service (Google, OneMap, openrouteservice, Geoapify or an OSRM server, tried in order when one is unavailable or out of free allowance) with no names attached. This is the one case where a position leaves Zorion, and the privacy page says so.
 - Coordinates are erased when the meetup ends: 24 hours after its start, or 30 days after its last change if it never got a date. The meetup itself is deleted 90 days after that. The erasing runs hourly with normal traffic (there is no cron trigger), so in a quiet spell it happens with the next visit; an uptime monitor on `/api/health` keeps it to the hour.
 
 ## Host sign-in
@@ -75,7 +75,8 @@ Card details never reach Zorion. Checkout and the customer portal are Stripe's o
 
 ## Keys entered in the admin portal
 
-- Stripe, Telegram, Resend, Google and openrouteservice keys are entered in the admin portal, not Cloudflare. Each is checked with one real request before it is saved. They are encrypted with AES-GCM under a key derived from `TOTP_KEY` before they are stored, and the portal only ever shows the last four characters.
+- Stripe, Telegram, Resend, Google, Geoapify and openrouteservice keys, and the OneMap account, are entered in the admin portal, not Cloudflare. Each is checked with one real request before it is saved. They are encrypted with AES-GCM under a key derived from `TOTP_KEY` before they are stored, and the portal only ever shows the last four characters of a key. Of the OneMap account it shows a masked email and nothing of the password; no hint of the password is stored either.
+- Map services are called from Zorion's server, never the person's browser, so they never see who asked. Free allowances are counted in the database (`usage_counters`) with one atomic update per call, so two requests at once cannot both slip past a limit. A service that refuses (401, 402, 403, 429) is skipped for an hour.
 - Saving or removing a key, connecting the Stripe webhook, inviting an admin or switching one off needs a super admin and a fresh authenticator code (a used code can't be replayed), and is written to the audit log.
 - Admins are invited by a one-time link that expires in 24 hours. The invitee sets their own password and authenticator.
 
