@@ -375,6 +375,7 @@ export function HostMeetup({ me, id, sub, pid, m, setM }: { me: Me; id: string; 
           <div className="only-phone"><MeetupMap source={`/meetups/${m.id}/map`} version={`${m.status}:${m.people.filter((p: M) => p.hasLocation).length}`} height={220} compact /></div>
           {people}
           {m.hasLocation && <Switch on={m.showOnMap} onChange={(show) => call('/map-visibility', { show })} title="Show me on the crew map" meta={m.showOnMap ? 'Others see your pin and name' : 'Others see a rough area'} />}
+          {waiting.length === 0 && typing && <div className="card"><StartPicker saving={busy} search={async (q) => (await api('POST', `/meetups/${id}/start-search`, { q }))} onPick={(at) => run(async () => { setM((await api('POST', `/meetups/${id}/location`, at)).meetup); setTyping(false); })} /></div>}
           <Oops>{error}</Oops>
           <Actions>
             {waiting.length > 0 ? (
@@ -385,10 +386,7 @@ export function HostMeetup({ me, id, sub, pid, m, setM }: { me: Me; id: string; 
             ) : (
               <>
                 {typing ? (
-                  <>
-                    <StartPicker saving={busy} search={async (q) => (await api('POST', `/meetups/${id}/start-search`, { q }))} onPick={(at) => run(async () => { setM((await api('POST', `/meetups/${id}/location`, at)).meetup); setTyping(false); })} />
-                    <Btn kind="second" onClick={() => setTyping(false)}>Use my location</Btn>
-                  </>
+                  <Btn kind="second" onClick={() => setTyping(false)}>Use my location</Btn>
                 ) : (
                   <>
                     <Btn busy={busy} onClick={() => findMiddle()}>Find places</Btn>

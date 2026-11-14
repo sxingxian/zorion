@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { useAction } from './lib';
 import { LookupCredit } from './sources';
-import { Btn, Field, Note, Oops, Pick } from './ui';
+import { Btn, Note, Oops, Pick } from './ui';
 
 interface Match { label: string; lat: number; lng: number }
 export interface Lookup { results: Match[]; source?: string | null }
@@ -16,12 +16,25 @@ export function StartPicker({ search, onPick, saving }: { search: (q: string) =>
   const [source, setSource] = useState<string | null>(null);
   const [chosen, setChosen] = useState(-1);
   const [run, busy, error] = useAction();
+  const id = useId();
+  // Opened by a tap on "Type my start": bring the box clear of the bottom bar, with the cursor in it.
+  const box = useRef<HTMLFormElement>(null);
+  useEffect(() => {
+    const quiet = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    box.current?.scrollIntoView({ block: 'center', behavior: quiet ? 'auto' : 'smooth' });
+    box.current?.querySelector('input')?.focus({ preventScroll: true });
+  }, []);
   const ready = q.trim().length >= 3;
   const look = () => run(async () => { setChosen(-1); const { results: found, source: from } = await search(q.trim()); setMatches(found); setSource(from ?? null); if (found.length === 1) setChosen(0); });
   return (
-    <form className="stack" style={{ gap: 10 }} onSubmit={(e) => { e.preventDefault(); if (ready && !busy) look(); }}>
-      <Field label="Station, street or postcode" value={q} onChange={(v) => { setQ(v.slice(0, 120)); setMatches(null); }} autoComplete="street-address" placeholder="e.g. Bugis MRT" />
-      <Btn kind="second" type="submit" busy={busy} disabled={!ready}>Search</Btn>
+    <form ref={box} className="stack" style={{ gap: 10 }} onSubmit={(e) => { e.preventDefault(); if (ready && !busy) look(); }}>
+      <div className="field">
+        <label htmlFor={id}>Station, street or postcode</label>
+        <div className="searchrow">
+          <input id={id} className="input" value={q} maxLength={120} autoComplete="street-address" placeholder="e.g. Bugis MRT" onChange={(e) => { setQ(e.target.value.slice(0, 120)); setMatches(null); }} />
+          <Btn kind="second" type="submit" disabled={!ready || busy}>Search</Btn>
+        </div>
+      </div>
       <Oops>{error}</Oops>
       {matches && matches.length === 0 && <Note>No matches. Try a station or postcode.</Note>}
       {matches && matches.length > 0 && (
@@ -30,7 +43,7 @@ export function StartPicker({ search, onPick, saving }: { search: (q: string) =>
           <LookupCredit source={source} />
         </div>
       )}
-      {matches && matches.length > 0 && <Btn type="button" busy={saving} disabled={chosen < 0} onClick={() => { const p = matches[chosen]; if (p) onPick({ lat: p.lat, lng: p.lng }); }}>Use this</Btn>}
+      {matches && matches.length > 0 && <Btn type="button" className="fit" busy={saving} disabled={chosen < 0} onClick={() => { const p = matches[chosen]; if (p) onPick({ lat: p.lat, lng: p.lng }); }}>Use this</Btn>}
     </form>
   );
 }

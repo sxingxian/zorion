@@ -54,8 +54,9 @@ html, body { overflow-x: hidden; }
   .layout.two { grid-template-columns: minmax(0, 1fr) 420px; gap: 28px; padding: 0 16px; }
   .layout.two .screen, .layout.two .head { padding-left: 0; padding-right: 0; }
   .aside { display: flex; flex-direction: column; gap: 14px; position: sticky; top: 76px; align-self: start; padding: 16px 0 24px; }
-  .actions { position: static; margin: 12px 0 0; padding: 0 0 8px; border-top: 0; flex-direction: row-reverse; justify-content: flex-start; background: transparent; }
-  .actions .btn { width: auto; min-width: 180px; }
+  .actions { position: static; margin: 12px 0 0; padding: 0 0 8px; border-top: 0; flex-direction: row-reverse; justify-content: flex-start; align-items: center; background: transparent; }
+  .actions .btn, .btn.fit { width: auto; min-width: 180px; }
+  .btn.fit { align-self: flex-end; }
   .main.narrow .screen, .main.narrow .head { padding-left: 0; padding-right: 0; }
   .main.narrow { padding: 0 16px; }
 }
@@ -126,6 +127,9 @@ html, body { overflow-x: hidden; }
 .field label { display: flex; justify-content: space-between; font-size: 14px; font-weight: 700; }
 .field label span { font-weight: 500; color: var(--muted); }
 .input { min-height: 52px; min-width: 0; width: 100%; border: 1px solid var(--line); border-radius: 14px; padding: 0 14px; font-size: 16px; background: var(--card); color: var(--text); }
+.searchrow { display: flex; gap: 8px; align-items: stretch; }
+.searchrow .input { flex: 1; }
+.searchrow .btn { width: auto; min-height: 52px; flex: none; padding: 0 20px; font-size: 16px; }
 .input:focus { border-color: var(--text); outline: 0; box-shadow: 0 0 0 1px var(--text); }
 .codes { display: grid; gap: 8px; }
 .codes input { width: 100%; min-width: 0; height: 60px; text-align: center; border: 1px solid var(--line); border-radius: 14px; background: var(--card); font-family: var(--display); font-weight: 700; font-size: 28px; text-transform: uppercase; }
