@@ -57,15 +57,25 @@ test('admin: password, then authenticator; a setting change lands in the audit l
   await page.locator('input[type=password]').fill('demo-admin-password');
   await tap(page, 'Continue');
   await page.locator('input[inputmode=numeric]').fill(totp(ADMIN_KEY));
-  await tap(page, 'Verify and sign in');
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Overview' })).toBeVisible();
 
-  await page.getByRole('link', { name: 'Categories' }).click();
+  await page.getByRole('link', { name: 'Categories', exact: true }).click();
   await page.getByLabel('Trip times come from').selectOption('google');
-  await expect(page.getByRole('status')).toHaveText('Saved.');
+  await expect(page.getByRole('status')).toHaveText('Saved');
   await page.getByLabel('Trip times come from').selectOption('estimate'); // leave the demo as it was
-  await page.getByRole('link', { name: 'Admins & log' }).click();
-  await expect(page.getByText('routing_provider').first()).toBeVisible();
+  await page.getByRole('link', { name: 'Admins', exact: true }).click();
+  await expect(page.getByText('Changed trip times to Google routes').first()).toBeVisible(); // the log reads in plain words
+
+  // Keys: a missing key is said under the field, and the authenticator code is asked when Connect is pressed.
+  await page.getByRole('link', { name: 'Payments', exact: true }).click();
+  await page.getByRole('button', { name: 'Connect', exact: true }).click();
+  await expect(page.getByText('Paste the secret key first.')).toBeVisible();
+  await page.getByLabel('Secret key').fill(['sk', 'test', 'abcdefghijklmnopqrstuv'].join('_'));
+  await page.getByRole('button', { name: 'Connect', exact: true }).click();
+  await expect(page.getByRole('dialog', { name: 'Connect Stripe' })).toBeVisible();
+  await page.getByRole('button', { name: 'Cancel' }).click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
 
   // Without a session the admin API gives nothing away.
   const res = await (await page.context().browser()!.newContext()).request.get(`${SITE}/admin/api/users`);
@@ -78,23 +88,34 @@ test('admin: prices and categories set in the portal show up in the app', async 
   await page.locator('input[type=password]').fill('demo-admin-password');
   await tap(page, 'Continue');
   await page.locator('input[inputmode=numeric]').fill(totp(ADMIN_KEY, Date.now() + 30_000));
-  await tap(page, 'Verify and sign in');
-  await page.getByRole('link', { name: 'Plans & prices' }).click();
-  await page.getByLabel('Monthly').fill('4.90');
-  await page.getByLabel('Yearly').fill('49');
-  await tap(page, 'Save plans and prices');
-  await expect(page.getByRole('status')).toHaveText('Saved.');
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+  await page.getByRole('link', { name: 'Plans', exact: true }).click();
+  const monthly = page.getByLabel('Monthly', { exact: true });
+  await monthly.fill('1.0'); // what you type stays as typed while you type
+  await expect(monthly).toHaveValue('1.0');
+  await monthly.fill('4.90');
+  await page.getByLabel('Yearly', { exact: true }).fill('49');
+  await page.getByLabel('Yearly', { exact: true }).blur();
+  await expect(page.getByLabel('Yearly', { exact: true })).toHaveValue('49.00'); // tidied on leaving the box
+  await expect(page.getByText('Yearly is 17% cheaper than 12 months of monthly.')).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Unsaved changes' })).toBeVisible();
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(page.getByRole('status')).toHaveText('Saved');
+  await expect(page.getByRole('region', { name: 'Unsaved changes' })).toHaveCount(0);
 
-  await page.getByRole('link', { name: 'Categories' }).click();
-  await tap(page, 'Add category');
-  await page.getByLabel('Name').fill('Hotpot');
+  await page.getByRole('link', { name: 'Categories', exact: true }).click();
+  await page.getByRole('button', { name: 'Add food option' }).click();
+  await page.getByLabel('Name', { exact: true }).fill('Hotpot');
   await page.getByRole('button', { name: 'hotpot', exact: true }).click();
-  await page.getByLabel('OpenStreetMap cuisine words, comma separated').fill('hotpot, steamboat');
-  await tap(page, 'Save');
-  await expect(page.getByRole('cell', { name: 'Hotpot', exact: true }).first()).toBeVisible();
+  await page.getByRole('button', { name: 'Advanced' }).click();
+  await expect(page.getByLabel('Google search words')).toBeVisible();
+  await page.getByRole('button', { name: 'Use one set of search words' }).click();
+  await page.getByLabel('Search words', { exact: true }).fill('hotpot, steamboat');
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(page.getByText('Hotpot', { exact: true }).first()).toBeVisible();
 
-  await page.getByRole('link', { name: 'Admins & log' }).click();
-  await expect(page.getByText('plans.save').first()).toBeVisible();
+  await page.getByRole('link', { name: 'Admins', exact: true }).click();
+  await expect(page.getByText(/Changed plans · Pro S\$4\.90 a month/).first()).toBeVisible();
   await page.goto(`${SITE}/admin/nope`);
   await expect(page.getByRole('heading', { name: 'Page not found' })).toBeVisible();
 

@@ -80,25 +80,30 @@ config.post('/payments/check', async (c) => {
     webhook: ours ? { status: ours.status, events: STRIPE_EVENTS.every((e) => ours.enabled_events.includes(e) || ours.enabled_events.includes('*')) } : null,
   });
 });
-config.put('/payments/key', async (c) => {
-  const input = await body(c, z.object({ secretKey: z.string().trim().regex(/^(sk|rk)_(test|live)_[A-Za-z0-9]{16,}$/, 'That is not a Stripe secret key (sk_live_… or sk_test_…).'), code }));
-  await stepUp(c, input.code);
-  await stripeCall(c, input.secretKey, 'GET', 'account'); // refuses a wrong key before it is saved
-  await save(c, 'STRIPE_SECRET_KEY', input.secretKey);
-  await audit(c, 'stripe.key', null, { mode: keyMode(input.secretKey), ends: input.secretKey.slice(-4) });
-  return c.json({ ok: true });
-});
 /** Creates Zorion's webhook in Stripe and keeps its signing secret, replacing any earlier one for the same address. */
-config.post('/payments/webhook', async (c) => {
-  const input = await body(c, z.object({ code }));
-  await stepUp(c, input.code);
-  const key = (await saved(c)).STRIPE_SECRET_KEY;
-  if (!key) throw new Fail(409, 'no_key', 'Save the Stripe key first.');
+async function connectWebhook(c: C, key: string) {
   const hooks = await stripeCall(c, key, 'GET', 'webhook_endpoints?limit=100');
   for (const h of (hooks.data as any[]).filter((h) => h.url === webhookUrl(c))) await stripeCall(c, key, 'DELETE', `webhook_endpoints/${encodeURIComponent(h.id)}`);
   const made = await stripeCall(c, key, 'POST', 'webhook_endpoints', [['url', webhookUrl(c)], ['description', 'Zorion'], ...STRIPE_EVENTS.map((e): [string, string] => ['enabled_events[]', e])]);
   await save(c, 'STRIPE_WEBHOOK_SECRET', made.secret);
   await audit(c, 'stripe.webhook', null, { url: webhookUrl(c) });
+}
+/** Saves the key; with connect (the portal's one Connect button) it also sets up the webhook, under the same code. */
+config.put('/payments/key', async (c) => {
+  const input = await body(c, z.object({ secretKey: z.string().trim().regex(/^(sk|rk)_(test|live)_[A-Za-z0-9]{16,}$/, "That isn't a Stripe secret key. It starts with sk_live_ or sk_test_."), code, connect: z.boolean().optional() }));
+  await stepUp(c, input.code);
+  await stripeCall(c, input.secretKey, 'GET', 'account'); // refuses a wrong key before it is saved
+  await save(c, 'STRIPE_SECRET_KEY', input.secretKey);
+  await audit(c, 'stripe.key', null, { mode: keyMode(input.secretKey), ends: input.secretKey.slice(-4) });
+  if (input.connect) await connectWebhook(c, input.secretKey);
+  return c.json({ ok: true });
+});
+config.post('/payments/webhook', async (c) => {
+  const input = await body(c, z.object({ code }));
+  await stepUp(c, input.code);
+  const key = (await saved(c)).STRIPE_SECRET_KEY;
+  if (!key) throw new Fail(409, 'no_key', 'Connect a Stripe key first.');
+  await connectWebhook(c, key);
   return c.json({ ok: true });
 });
 config.post('/payments/remove', async (c) => {
@@ -205,7 +210,7 @@ config.delete('/categories/:key', async (c) => {
   if (!/^[a-z0-9_]{2,24}$/.test(key)) throw new Fail(404, 'not_found', 'Not found.');
   const { db } = c.get('deps');
   const left = await one(db, 'select count(*)::int as n from categories where active and key <> $1', [key]);
-  if (Number(left?.n ?? 0) < 2) throw new Fail(409, 'too_few', 'Keep at least two active categories.');
+  if (Number(left?.n ?? 0) < 2) throw new Fail(409, 'too_few', 'Keep at least two food options.');
   // Meetups keep their own copy of the name and icon, so removing one never breaks a meetup in progress.
   await db.query('delete from categories where key = $1', [key]);
   await audit(c, 'category.remove', key);
