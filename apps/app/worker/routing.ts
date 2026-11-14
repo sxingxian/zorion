@@ -1,41 +1,82 @@
 import type { Point, TravelMode } from '@zorion/core';
+import { isGoogleRefusal, isRefusal, pause, pauseGoogle, take, takeGoogle } from '@zorion/server/usage';
 import type { Deps } from './core';
 import { setting } from './core';
+import { geoapifyMatrix } from './geoapify';
+import { onemapMatrix } from './onemap';
 
-export type RoutingProvider = 'estimate' | 'osrm' | 'ors' | 'google';
+export type RoutingProvider = 'estimate' | 'osrm' | 'ors' | 'geoapify' | 'onemap' | 'google';
+export const ROUTING_CHOICES: RoutingProvider[] = ['estimate', 'osrm', 'ors', 'geoapify', 'onemap', 'google'];
 
 const routesKey = (deps: Deps): string | undefined => deps.env.GOOGLE_ROUTES_KEY || deps.env.GOOGLE_PLACES_KEY;
 
 /**
- * Where trip times come from. The admin chooses; a choice whose key or server is missing falls back to the estimate.
- * - "estimate": worked out inside Zorion from distance. Nothing leaves Zorion.
+ * Where trip times come from. The admin chooses where to start; "estimate" keeps everything inside
+ * Zorion. Every routed option sends starting points and places, with no names attached, to that service.
  * - "osrm": an OSRM server on OpenStreetMap data. Free, no key. Walking and cycling.
  * - "ors": openrouteservice. Free plan with a key. Walking and cycling.
- * - "google": Google's Routes API. Paid. Walking, cycling and transit.
- * Every routed option sends starting points and places, with no names attached, to that service.
+ * - "geoapify": Geoapify. Free plan with a key. Walking and cycling.
+ * - "onemap": OneMap (Singapore). Free with an account. Walking, cycling and public transport.
+ * - "google": Google's Routes API. Paid past the free allowance. Walking, cycling and transit.
  */
 export async function activeRouting(deps: Deps): Promise<RoutingProvider> {
   const chosen = await setting<string>(deps.db, 'routing_provider', 'estimate');
-  if (chosen === 'google' && routesKey(deps)) return 'google';
-  if (chosen === 'ors' && deps.env.ORS_API_KEY) return 'ors';
-  if (chosen === 'osrm' && (deps.env.OSRM_FOOT_URL || deps.env.OSRM_BIKE_URL)) return 'osrm';
-  return 'estimate';
+  return (ROUTING_CHOICES as string[]).includes(chosen) ? (chosen as RoutingProvider) : 'estimate';
 }
 
-/** Whether a provider can route this way of travelling at all. Only Google has timetables. */
+/** Whether a provider is set up and can route this way of travelling. Only Google and OneMap have timetables. */
 export function canRoute(deps: Deps, provider: RoutingProvider, mode: TravelMode): boolean {
-  if (provider === 'google') return true;
-  if (provider === 'ors') return mode !== 'transit';
-  if (provider === 'osrm') return mode === 'walk' ? !!deps.env.OSRM_FOOT_URL : mode === 'cycle' ? !!deps.env.OSRM_BIKE_URL : false;
+  if (provider === 'google') return !!routesKey(deps);
+  if (provider === 'onemap') return !!(deps.env.ONEMAP_EMAIL && deps.env.ONEMAP_PASSWORD);
+  if (mode === 'transit') return false;
+  if (provider === 'ors') return !!deps.env.ORS_API_KEY;
+  if (provider === 'geoapify') return !!deps.env.GEOAPIFY_KEY;
+  if (provider === 'osrm') return mode === 'walk' ? !!deps.env.OSRM_FOOT_URL : !!deps.env.OSRM_BIKE_URL;
   return false;
 }
 
-/** Travel minutes for every origin to every destination, as rows of origins. A cell is null when there is no route. Throws on failure. */
+/**
+ * The services to try for trip times, in order: the one the admin chose, then the free ones that can
+ * route this way (walking and cycling: openrouteservice, Geoapify, OpenStreetMap routing, OneMap;
+ * transit: OneMap). Empty means Zorion's estimate. A paid service is only used when it was chosen.
+ */
+export async function routingLadder(deps: Deps, mode: TravelMode): Promise<RoutingProvider[]> {
+  const chosen = await activeRouting(deps);
+  if (chosen === 'estimate') return [];
+  const free: RoutingProvider[] = mode === 'transit' ? ['onemap'] : ['ors', 'geoapify', 'osrm', 'onemap'];
+  return [chosen, ...free.filter((p) => p !== chosen)].filter((p) => canRoute(deps, p, mode));
+}
+
+/**
+ * Trip times from the first service in the ladder that answers. A service whose free allowance is used
+ * up, that refuses or fails, hands over to the next; if none answers this throws, and the caller uses
+ * Zorion's estimate. The answer says which service it was, so the app can credit it.
+ */
+export async function routeWithLadder(deps: Deps, ladder: readonly RoutingProvider[], origins: readonly Point[], destinations: readonly Point[], mode: TravelMode, arriveBy: Date | null): Promise<{ matrix: (number | null)[][]; source: RoutingProvider }> {
+  let lastError: unknown = new Error('no routing service');
+  for (const source of ladder) {
+    try {
+      return { matrix: await routeMatrix(deps, source, origins, destinations, mode, arriveBy), source };
+    } catch (err) {
+      lastError = err;
+    }
+  }
+  throw lastError;
+}
+
+/** Travel minutes from one service for every origin to every destination, as rows of origins. A cell is null when there is no route. Throws on failure. */
 export async function routeMatrix(deps: Deps, provider: RoutingProvider, origins: readonly Point[], destinations: readonly Point[], mode: TravelMode, arriveBy: Date | null): Promise<(number | null)[][]> {
   if (!canRoute(deps, provider, mode)) throw new Error(`${provider} cannot route ${mode}`);
   if (origins.length === 0 || destinations.length === 0) return origins.map(() => destinations.map(() => null));
   if (provider === 'osrm') return osrmMatrix(deps, origins, destinations, mode);
-  if (provider === 'ors') return orsMatrix(deps, origins, destinations, mode);
+  if (provider === 'ors') {
+    if (!(await take(deps.db, 'ors_matrix', 1, deps.now()))) throw new Error('openrouteservice allowance used');
+    return orsMatrix(deps, origins, destinations, mode);
+  }
+  if (provider === 'geoapify') return geoapifyMatrix(deps, origins, destinations, mode);
+  if (provider === 'onemap') return onemapMatrix(deps, origins, destinations, mode, arriveBy);
+  // Google, billed per origin–destination pair, while the month's free allowance lasts.
+  if (!(await takeGoogle(deps.db, 'routes', origins.length * destinations.length, deps.now()))) throw new Error('Google allowance used');
   return googleMatrix(deps, origins, destinations, mode, arriveBy);
 }
 
@@ -83,7 +124,10 @@ async function orsMatrix(deps: Deps, origins: readonly Point[], destinations: re
     }),
     signal: AbortSignal.timeout(12000),
   });
-  if (!res.ok) throw new Error(`openrouteservice failed (${res.status})`);
+  if (!res.ok) {
+    if (isRefusal(res.status)) await pause(deps.db, 'ors', deps.now());
+    throw new Error(`openrouteservice failed (${res.status})`);
+  }
   const data = (await res.json()) as { durations?: unknown[][] };
   if (!Array.isArray(data.durations) || data.durations.length !== origins.length) throw new Error('openrouteservice sent an unexpected answer');
   return data.durations.map((row) => destinations.map((_, d) => toMinutes(Array.isArray(row) ? row[d] : null)));
@@ -116,7 +160,10 @@ async function googleMatrix(deps: Deps, origins: readonly Point[], destinations:
       }),
       signal: AbortSignal.timeout(12000),
     });
-    if (!res.ok) throw new Error(`Google Routes failed (${res.status})`);
+    if (!res.ok) {
+      if (isGoogleRefusal(res.status)) await pauseGoogle(deps.db, deps.now());
+      throw new Error(`Google Routes failed (${res.status})`);
+    }
     const rows = (await res.json()) as Array<{ originIndex?: number; destinationIndex?: number; status?: { code?: number }; condition?: string; duration?: string }>;
     if (!Array.isArray(rows)) throw new Error('Google Routes sent an unexpected answer');
     for (const el of rows) {

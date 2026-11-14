@@ -21,6 +21,7 @@ test('fixed date: from a new meetup to "it is on", with a typed start and no coo
   await tap(sam.page, 'Type a place instead');
   await sam.page.getByLabel('Station, street or postcode').fill('Bugis MRT');
   await tap(sam.page, 'Search');
+  await expect(sam.page.getByText('Results from OpenStreetMap')).toBeVisible(); // OneMap is down in the demo, so the next service answered
   await tap(sam.page, 'Bugis MRT Road');
   await press(sam.page, 'Use this');
   await tap(sam.page, 'Pizza');
@@ -38,7 +39,7 @@ test('fixed date: from a new meetup to "it is on", with a typed start and no coo
   await expect(page.getByText('1 maybe', { exact: true })).toBeVisible();
   await tap(page, 'Find the middle');
   await expect(page.getByText('Closest to everyone')).toBeVisible();
-  await expect(page.getByText('Times are estimates.', { exact: false })).toBeVisible();
+  await expect(page.getByText('Places: OpenStreetMap · Trip times: estimated from distance')).toBeVisible();
   await expect(page.locator('button.pick')).toHaveCount(8);
 
   // Two places means a final vote; the host votes first.

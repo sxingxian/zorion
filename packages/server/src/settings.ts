@@ -4,11 +4,20 @@
 import { type Db, one } from '@zorion/db';
 import { seal, unseal } from './crypto';
 
-export const SECRET_SETTINGS = ['STRIPE_SECRET_KEY', 'STRIPE_WEBHOOK_SECRET', 'TELEGRAM_BOT_TOKEN', 'TELEGRAM_WEBHOOK_SECRET', 'RESEND_API_KEY', 'GOOGLE_PLACES_KEY', 'ORS_API_KEY'] as const;
+export const SECRET_SETTINGS = ['STRIPE_SECRET_KEY', 'STRIPE_WEBHOOK_SECRET', 'TELEGRAM_BOT_TOKEN', 'TELEGRAM_WEBHOOK_SECRET', 'RESEND_API_KEY', 'GOOGLE_PLACES_KEY', 'ORS_API_KEY', 'GEOAPIFY_KEY', 'ONEMAP_EMAIL', 'ONEMAP_PASSWORD'] as const;
 export const PLAIN_SETTINGS = ['TELEGRAM_BOT_USERNAME', 'EMAIL_FROM'] as const;
 export type SettingName = (typeof SECRET_SETTINGS)[number] | (typeof PLAIN_SETTINGS)[number];
 export const isSettingName = (n: string): n is SettingName => (SECRET_SETTINGS as readonly string[]).includes(n) || (PLAIN_SETTINGS as readonly string[]).includes(n);
 const isSecret = (n: SettingName) => (SECRET_SETTINGS as readonly string[]).includes(n);
+/**
+ * What the portal may show of a saved secret: the last four characters of a key, a masked email,
+ * and nothing at all of a password (even four characters of one help a guesser).
+ */
+export function hintFor(name: SettingName, value: string): string {
+  if (name === 'ONEMAP_PASSWORD') return '';
+  if (name === 'ONEMAP_EMAIL') { const [user = '', domain = ''] = value.split('@'); return `${user.slice(0, 1)}•••@${domain}`; }
+  return value.slice(-4);
+}
 
 /** The sender used when no address has been set. The domain must be verified in Resend. */
 export const DEFAULT_EMAIL_FROM = 'Zorion <noreply@app.midnightpoetry.studio>';
@@ -35,7 +44,7 @@ export async function saveSetting(db: Db, totpKey: string, name: SettingName, ra
     await db.query('delete from settings where key = $1', [rowKey(name)]);
     return;
   }
-  const stored = isSecret(name) ? { sealed: await seal(value, settingsKey(totpKey)), hint: value.slice(-4) } : { value };
+  const stored = isSecret(name) ? { sealed: await seal(value, settingsKey(totpKey)), hint: hintFor(name, value) } : { value };
   await db.query('insert into settings (key, value) values ($1, $2) on conflict (key) do update set value = excluded.value, updated_at = now()', [rowKey(name), JSON.stringify(stored)]);
 }
 
@@ -67,8 +76,8 @@ export async function settingsStatus(db: Db, env: Record<string, unknown>): Prom
     const v = r?.value as { hint?: string; value?: string } | undefined;
     const fromEnv = typeof env[name] === 'string' && (env[name] as string).length > 0 ? (env[name] as string) : null;
     out[name] = r
-      ? { set: true, from: 'portal', hint: isSecret(name) ? v?.hint ?? '' : v?.value ?? '', updatedAt: new Date(r.updated_at as string).toISOString() }
-      : { set: !!fromEnv, from: fromEnv ? 'worker' : null, hint: fromEnv ? (isSecret(name) ? fromEnv.slice(-4) : fromEnv) : '', updatedAt: null };
+      ? { set: true, from: 'portal', hint: isSecret(name) ? (name === 'ONEMAP_PASSWORD' ? '' : v?.hint ?? '') : v?.value ?? '', updatedAt: new Date(r.updated_at as string).toISOString() }
+      : { set: !!fromEnv, from: fromEnv ? 'worker' : null, hint: fromEnv ? (isSecret(name) ? hintFor(name, fromEnv) : fromEnv) : '', updatedAt: null };
   }
   return out;
 }

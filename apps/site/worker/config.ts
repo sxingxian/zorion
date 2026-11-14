@@ -7,6 +7,7 @@ import { DEFAULT_PLANS, ICONS, TRAVEL_MODES, normalizePlans } from '@zorion/core
 import { one } from '@zorion/db';
 import { hashPassword, newTotpSecret, otpauthUri, randomToken, seal, sha256, unseal, verifyTotp } from '@zorion/server/crypto';
 import { DEFAULT_EMAIL_FROM, EMAIL_STATUS_KEY, type EmailStatus, type SettingName, loadSettings, readJson, saveSetting, settingsStatus, tidySettings } from '@zorion/server/settings';
+import { usageReport } from '@zorion/server/usage';
 import { type App, type C, Fail, audit, body, need, stepUp } from './core';
 
 export const config = new Hono<App>();
@@ -203,9 +204,12 @@ config.post('/email/test', async (c) => {
   return c.json({ ok: true, to: admin.email });
 });
 
-// ---------- map services: Google (places, and routes) and openrouteservice (routes) ----------
+// ---------- map services: Google (paid past a free allowance), and the free ones: openrouteservice,
+// Geoapify and OneMap. The app tries them in order and moves on when one's free allowance runs out. ----------
 const MAPS_STATUS = 'maps_status';
-interface MapsStatus { google?: { places: boolean; routes: boolean; at: string }; ors?: { ok: boolean; at: string } }
+type FreeService = 'ors' | 'geoapify' | 'onemap';
+interface MapsStatus { google?: { places: boolean; routes: boolean; at: string }; ors?: { ok: boolean; at: string }; geoapify?: { ok: boolean; at: string }; onemap?: { ok: boolean; at: string } }
+const KEYS_OF: Record<'google' | FreeService, SettingName[]> = { google: ['GOOGLE_PLACES_KEY'], ors: ['ORS_API_KEY'], geoapify: ['GEOAPIFY_KEY'], onemap: ['ONEMAP_EMAIL', 'ONEMAP_PASSWORD'] };
 /** One small, real request to each Google API the key might be used for. Routes is optional: Places is required. */
 async function checkGoogle(c: C, key: string): Promise<{ places: boolean; routes: boolean; error: string | null }> {
   const post = (url: string, mask: string, payload: unknown) => c.get('deps').fetch(url, {
@@ -237,11 +241,34 @@ async function checkOrs(c: C, key: string): Promise<string | null> {
     return `openrouteservice: ${msg ?? `refused (${res.status})`}`;
   } catch { return 'Could not reach openrouteservice. Try again.'; }
 }
+/** One small search (1 credit). */
+async function checkGeoapify(c: C, key: string): Promise<string | null> {
+  try {
+    const res = await c.get('deps').fetch(`https://api.geoapify.com/v1/geocode/search?text=Bugis&filter=countrycode:sg&limit=1&format=json&apiKey=${encodeURIComponent(key)}`, { signal: AbortSignal.timeout(10000) });
+    if (res.ok) return null;
+    const data = (await res.json().catch(() => null)) as { message?: string } | null;
+    return `Geoapify: ${data?.message ?? `refused (${res.status})`}`;
+  } catch { return 'Could not reach Geoapify. Try again.'; }
+}
+/** Signs in to OneMap, which is all its routing needs. */
+async function checkOneMap(c: C, email: string, password: string): Promise<string | null> {
+  try {
+    const res = await c.get('deps').fetch('https://www.onemap.gov.sg/api/auth/post/getToken', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email, password }), signal: AbortSignal.timeout(10000) });
+    const data = (await res.json().catch(() => null)) as { access_token?: string; error?: string } | null;
+    if (res.ok && data?.access_token) return null;
+    return `OneMap: ${data?.error ?? `refused (${res.status})`}`;
+  } catch { return 'Could not reach OneMap. Try again.'; }
+}
 config.get('/maps', async (c) => {
   need(c);
   const { db, env } = c.get('deps');
   const st = await settingsStatus(db, env as unknown as Record<string, unknown>);
-  return c.json({ google: st.GOOGLE_PLACES_KEY, ors: st.ORS_API_KEY, status: await readJson<MapsStatus>(db, MAPS_STATUS, {}) });
+  return c.json({
+    google: st.GOOGLE_PLACES_KEY, ors: st.ORS_API_KEY, geoapify: st.GEOAPIFY_KEY,
+    // The account's masked email; nothing of the password.
+    onemap: { ...st.ONEMAP_EMAIL, set: st.ONEMAP_EMAIL.set && st.ONEMAP_PASSWORD.set },
+    status: await readJson<MapsStatus>(db, MAPS_STATUS, {}), usage: await usageReport(db, c.get('deps').now()),
+  });
 });
 config.put('/maps/google', async (c) => {
   const input = await body(c, z.object({ key: z.string().trim().regex(/^[A-Za-z0-9_-]{30,60}$/, "That isn't a Google API key. It starts with AIza."), code }));
@@ -265,6 +292,29 @@ config.put('/maps/ors', async (c) => {
   await audit(c, 'maps.ors', null, { ends: input.key.slice(-4) });
   return c.json({ ok: true });
 });
+config.put('/maps/geoapify', async (c) => {
+  const input = await body(c, z.object({ key: z.string().trim().regex(/^[A-Za-z0-9]{20,64}$/, "That isn't a Geoapify key."), code }));
+  await stepUp(c, input.code);
+  const err = await checkGeoapify(c, input.key);
+  if (err) throw new Fail(422, 'geoapify', err);
+  await save(c, 'GEOAPIFY_KEY', input.key);
+  const status = await readJson<MapsStatus>(c.get('deps').db, MAPS_STATUS, {});
+  await putJson(c, MAPS_STATUS, { ...status, geoapify: { ok: true, at: new Date().toISOString() } });
+  await audit(c, 'maps.geoapify', null, { ends: input.key.slice(-4) });
+  return c.json({ ok: true });
+});
+config.put('/maps/onemap', async (c) => {
+  const input = await body(c, z.object({ email: z.string().trim().toLowerCase().email('Enter the email of your OneMap account.').max(200), password: z.string().min(1, 'Enter the password.').max(200), code }));
+  await stepUp(c, input.code);
+  const err = await checkOneMap(c, input.email, input.password);
+  if (err) throw new Fail(422, 'onemap', err);
+  await save(c, 'ONEMAP_EMAIL', input.email);
+  await save(c, 'ONEMAP_PASSWORD', input.password);
+  const status = await readJson<MapsStatus>(c.get('deps').db, MAPS_STATUS, {});
+  await putJson(c, MAPS_STATUS, { ...status, onemap: { ok: true, at: new Date().toISOString() } });
+  await audit(c, 'maps.onemap', null);
+  return c.json({ ok: true });
+});
 /** Checks the saved keys again, for example after turning on Routes API in Google Cloud. Changes no key. */
 config.post('/maps/check', async (c) => {
   need(c, 'super');
@@ -274,17 +324,19 @@ config.post('/maps/check', async (c) => {
   let error: string | null = null;
   if (keys.GOOGLE_PLACES_KEY) { const r = await checkGoogle(c, keys.GOOGLE_PLACES_KEY); status.google = { places: r.places, routes: r.routes, at }; error = r.error; }
   if (keys.ORS_API_KEY) { const e = await checkOrs(c, keys.ORS_API_KEY); status.ors = { ok: !e, at }; error = error ?? e; }
+  if (keys.GEOAPIFY_KEY) { const e = await checkGeoapify(c, keys.GEOAPIFY_KEY); status.geoapify = { ok: !e, at }; error = error ?? e; }
+  if (keys.ONEMAP_EMAIL && keys.ONEMAP_PASSWORD) { const e = await checkOneMap(c, keys.ONEMAP_EMAIL, keys.ONEMAP_PASSWORD); status.onemap = { ok: !e, at }; error = error ?? e; }
   await putJson(c, MAPS_STATUS, status);
   return c.json({ status, error });
 });
 config.post('/maps/:service/remove', async (c) => {
   const service = c.req.param('service');
-  if (service !== 'google' && service !== 'ors') throw new Fail(404, 'not_found', 'Not found.');
+  if (!(service in KEYS_OF)) throw new Fail(404, 'not_found', 'Not found.');
   const input = await body(c, z.object({ code }));
   await stepUp(c, input.code);
-  await save(c, service === 'google' ? 'GOOGLE_PLACES_KEY' : 'ORS_API_KEY', null);
+  for (const k of KEYS_OF[service as keyof typeof KEYS_OF]) await save(c, k, null);
   const status = await readJson<MapsStatus>(c.get('deps').db, MAPS_STATUS, {});
-  delete status[service];
+  delete status[service as keyof MapsStatus];
   await putJson(c, MAPS_STATUS, status);
   await audit(c, `maps.${service}.remove`, null);
   return c.json({ ok: true });

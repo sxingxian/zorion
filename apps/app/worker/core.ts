@@ -21,6 +21,9 @@ export interface Env {
   OSRM_FOOT_URL?: string; // an OSRM server with a walking profile, for free routed times
   OSRM_BIKE_URL?: string; // an OSRM server with a cycling profile
   ORS_API_KEY?: string; // openrouteservice key (free plan available)
+  GEOAPIFY_KEY?: string; // Geoapify key (free plan: 3,000 credits a day)
+  ONEMAP_EMAIL?: string; // OneMap account (Singapore Land Authority), for routing tokens
+  ONEMAP_PASSWORD?: string;
   TELEGRAM_BOT_TOKEN?: string; // from @BotFather
   TELEGRAM_BOT_USERNAME?: string; // the bot's username, without @
   TELEGRAM_WEBHOOK_SECRET?: string; // the secret_token given to setWebhook

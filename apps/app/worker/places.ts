@@ -1,5 +1,7 @@
 import type { Point } from '@zorion/core';
+import { isGoogleRefusal, pauseGoogle, takeGoogle } from '@zorion/server/usage';
 import type { Deps } from './core';
+import { geoapifyPlaces } from './geoapify';
 import { setting } from './core';
 
 export interface FoundPlace extends Point {
@@ -17,12 +19,21 @@ export interface CategoryQuery {
   google: { type?: string; text?: string };
 }
 
-export type Provider = 'osm' | 'google';
+export type Provider = 'google' | 'geoapify' | 'osm';
+const ORDER: Provider[] = ['google', 'geoapify', 'osm'];
+const ready = (deps: Deps, p: Provider) => (p === 'google' ? !!deps.env.GOOGLE_PLACES_KEY : p === 'geoapify' ? !!deps.env.GEOAPIFY_KEY : true);
 
-/** The admin setting wins, then the environment, then OpenStreetMap. Google needs a key. */
-export async function activeProvider(deps: Deps): Promise<Provider> {
+/**
+ * The services to try for place search, in order: the one the admin chose, then the free ones
+ * (Geoapify, then OpenStreetMap). A paid service is only ever used when it was chosen.
+ */
+export async function placeLadder(deps: Deps): Promise<Provider[]> {
   const chosen = await setting<string>(deps.db, 'places_provider', deps.env.PLACES_PROVIDER ?? 'osm');
-  return chosen === 'google' && deps.env.GOOGLE_PLACES_KEY ? 'google' : 'osm';
+  const start = (ORDER as string[]).includes(chosen) ? (chosen as Provider) : 'osm';
+  return [start, ...ORDER.filter((p) => p !== start && p !== 'google')].filter((p) => ready(deps, p));
+}
+export async function activeProvider(deps: Deps): Promise<Provider> {
+  return (await placeLadder(deps))[0] ?? 'osm';
 }
 
 /** Letters, digits and spaces only, so a category name can never alter a query. */
@@ -71,24 +82,51 @@ async function searchGoogle(deps: Deps, center: Point, radius: number, cat: Cate
     body: JSON.stringify(payload),
     signal: AbortSignal.timeout(10000),
   });
-  if (!res.ok) throw new Error(`Google Places search failed (${res.status})`);
+  if (!res.ok) {
+    if (isGoogleRefusal(res.status)) await pauseGoogle(deps.db, deps.now());
+    throw new Error(`Google Places search failed (${res.status})`);
+  }
   const data = (await res.json()) as { places?: Array<{ id: string; displayName?: { text?: string }; location?: { latitude: number; longitude: number }; shortFormattedAddress?: string; rating?: number; currentOpeningHours?: { openNow?: boolean } }> };
   return (data.places ?? [])
     .filter((p) => p.location && p.displayName?.text)
     .map((p) => ({ ref: p.id, name: p.displayName!.text!.slice(0, 80), lat: p.location!.latitude, lng: p.location!.longitude, address: p.shortFormattedAddress ?? null, rating: p.rating ?? null, openNow: p.currentOpeningHours?.openNow ?? null }));
 }
 
-/** Widens the search until there are enough places, or gives up at about a 40 minute walk. */
+/**
+ * Finds places for a category near the middle. Each service in the ladder widens its search until
+ * there are enough places, up to about a 40 minute walk. A service whose free allowance is used up,
+ * that refuses or fails, or that finds nothing, hands over to the next. The answer says which one
+ * found the places, so the app can credit it.
+ */
 export async function findPlaces(deps: Deps, center: Point, cat: CategoryQuery): Promise<{ provider: Provider; places: FoundPlace[] }> {
-  const provider = await activeProvider(deps);
-  const search = provider === 'google' ? searchGoogle : searchOsm;
+  const ladder = await placeLadder(deps);
+  let lastError: unknown = null;
+  for (const provider of ladder) {
+    try {
+      const places = await widen(deps, provider, center, cat);
+      if (places.length) {
+        const seen = new Set<string>();
+        return { provider, places: places.filter((p) => (seen.has(p.ref) ? false : (seen.add(p.ref), true))) };
+      }
+    } catch (err) {
+      lastError = err;
+    }
+  }
+  if (lastError) throw lastError;
+  return { provider: ladder.at(-1) ?? 'osm', places: [] };
+}
+
+async function widen(deps: Deps, provider: Provider, center: Point, cat: CategoryQuery): Promise<FoundPlace[]> {
   let places: FoundPlace[] = [];
   for (const radius of [700, 1500, 3000]) {
-    places = await search(deps, center, radius, cat);
+    if (provider === 'google') {
+      if (!(await takeGoogle(deps.db, !cat.own && cat.google.type ? 'places_nearby' : 'places_text', 1, deps.now()))) throw new Error('Google allowance used');
+      places = await searchGoogle(deps, center, radius, cat);
+    } else if (provider === 'geoapify') places = await geoapifyPlaces(deps, center, radius, cat);
+    else places = await searchOsm(deps, center, radius, cat);
     if (places.length >= 5) break;
   }
-  const seen = new Set<string>();
-  return { provider, places: places.filter((p) => (seen.has(p.ref) ? false : (seen.add(p.ref), true))) };
+  return places;
 }
 
 /** Deep link that opens directions in the guest's own maps app. */

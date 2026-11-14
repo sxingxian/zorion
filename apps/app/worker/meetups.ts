@@ -1,14 +1,14 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
-import { LIMITS, type Voter, cleanName, countedCategoryVotes, defaultRsvpAfterDateSet, fairMiddle, isBlockedName, leaders, maxCategoryVotes, maxShortlist, rankPlaces, scorePlaces, tally, travelMinutes, waitingForCategoryVotes } from '@zorion/core';
+import { LIMITS, type Point, type Voter, cleanName, countryOfZone, countedCategoryVotes, defaultRsvpAfterDateSet, fairMiddle, isBlockedName, leaders, maxCategoryVotes, maxShortlist, rankPlaces, scorePlaces, tally, travelMinutes, waitingForCategoryVotes } from '@zorion/core';
 import * as schemas from '@zorion/core/schemas';
 import { type Db, type Row, one } from '@zorion/db';
 import { type App, type C, type Deps, Fail, body, clientKey, features, guardLock, requireUser, setting, strike, upgrade } from './core';
 import { randomToken } from './crypto';
-import { findStart } from './geocode';
+import { type Near, findStart } from './geocode';
 import { later, tellGuests } from './mail';
 import { findPlaces } from './places';
-import { activeRouting, canRoute, routeMatrix } from './routing';
+import { routeWithLadder, routingLadder } from './routing';
 
 // ---------- loading a meetup with everything attached ----------
 export interface Loaded {
@@ -54,7 +54,7 @@ export function tripMinutes(L: Loaded, person: Row, place: Row): number | null {
  * Typed starting place. Limited per network, because every lookup is a call to an outside service.
  * `cf` is Cloudflare's rough idea of where the caller is; it only puts nearby results first.
  */
-export async function lookupStart(c: C, q: string) {
+export async function lookupStart(c: C, q: string, L: Loaded) {
   const deps = c.get('deps');
   const key = `start-search:${await clientKey(c)}`;
   await guardLock(deps.db, key);
@@ -62,11 +62,31 @@ export async function lookupStart(c: C, q: string) {
   const cf = (c.req.raw as { cf?: { country?: string; latitude?: string; longitude?: string } }).cf;
   const lat = Number(cf?.latitude);
   const lng = Number(cf?.longitude);
+  const caller = cf?.latitude && Number.isFinite(lat) && Number.isFinite(lng) ? { country: cf.country, lat, lng } : { country: cf?.country };
+  const known = L.people.filter((p) => p.lat !== null).map((p) => ({ lat: Number(p.lat), lng: Number(p.lng) }));
   try {
-    return await findStart(deps, q, { country: cf?.country, ...(Number.isFinite(lat) && Number.isFinite(lng) && cf?.latitude ? { lat, lng } : {}) });
+    return await findStart(deps, q, meetupArea(L.m.time_zone, known, caller));
   } catch {
     throw new Fail(409, 'search_failed', "Place search isn't responding. Try again, or share your location.");
   }
+}
+
+/**
+ * Where to look for a typed starting place. The meetup decides, not where the person typing happens to be:
+ * 1. the middle of the starting points already given, once there are any;
+ * 2. otherwise the country of the host's time zone when the meetup was made, and the caller's own
+ *    position only if they are in that country.
+ */
+export function meetupArea(zone: string, known: Point[], caller: { country?: string; lat?: number; lng?: number }): Near {
+  // Rounded to about 10 km: enough to rank results, too coarse to give away anyone's starting point.
+  const coarse = (x: number) => Math.round(x * 10) / 10;
+  if (known.length) {
+    const mid = fairMiddle(known);
+    return { country: undefined, lat: coarse(mid.lat), lng: coarse(mid.lng) };
+  }
+  const country = countryOfZone(zone);
+  const sameCountry = !!country && caller.country?.toUpperCase() === country;
+  return sameCountry && caller.lat !== undefined && caller.lng !== undefined ? { country, lat: coarse(caller.lat), lng: coarse(caller.lng) } : { country };
 }
 
 const voters = (L: Loaded): Voter[] =>
@@ -135,7 +155,7 @@ export function hostView(L: Loaded, deps: Deps, unseenChanges: number) {
     waiting: s.waiting,
     winner: L.m.winning_category,
     middle,
-    places: L.places.map((p) => ({ id: p.id, name: p.name, address: p.address, rating: p.rating, openNow: p.open_now, longest: p.longest_min, routed: p.routed, shortlisted: p.shortlisted, lat: p.lat, lng: p.lng, votes: s.placeTally.find((t) => t.key === p.id)?.votes ?? 0 })),
+    places: L.places.map((p) => ({ id: p.id, name: p.name, address: p.address, rating: p.rating, openNow: p.open_now, longest: p.longest_min, routed: p.routed, source: p.provider, routedBy: p.routed ? p.routed_by : null, shortlisted: p.shortlisted, lat: p.lat, lng: p.lng, votes: s.placeTally.find((t) => t.key === p.id)?.votes ?? 0 })),
     maxShortlist: L.places.length ? maxShortlist(L.places.length) : 0,
     placeLeaders: s.placeLeaders,
     chosenPlace: L.m.chosen_place,
@@ -296,9 +316,9 @@ meetups.post('/:id/location', async (c) => {
 
 /** Type a starting place instead of sharing GPS. Returns up to five matches to choose from. */
 meetups.post('/:id/start-search', async (c) => {
-  await owned(c);
+  const L = await owned(c);
   const { q } = await body(c, schemas.startSearch);
-  return c.json({ results: await lookupStart(c, q) });
+  return c.json(await lookupStart(c, q, L)); // { results, source }
 });
 
 /** The host votes first, before the link goes out. */
@@ -378,15 +398,17 @@ meetups.post('/:id/middle', async (c) => {
   const candidates = found.places.map((p) => ({ ...p, id: p.ref }));
   let ranked = rankPlaces(candidates, people, L.m.travel_mode);
   let routed = false;
-  const routing = await activeRouting(deps);
-  if (canRoute(deps, routing, L.m.travel_mode)) {
+  let routedBy: string | null = null;
+  const ladder = await routingLadder(deps, L.m.travel_mode);
+  if (ladder.length) {
     // Route only the best ten by estimate: enough to reorder the list, few enough to stay cheap.
     const top = scorePlaces(candidates, people, L.m.travel_mode).slice(0, 10).map((r) => r.place);
     try {
-      const matrix = await routeMatrix(deps, routing, people, top, L.m.travel_mode, L.m.starts_at ? new Date(L.m.starts_at) : null);
+      const { matrix, source } = await routeWithLadder(deps, ladder, people, top, L.m.travel_mode, L.m.starts_at ? new Date(L.m.starts_at) : null);
       const known = (personId: string, placeId: string) => matrix[people.findIndex((p) => p.id === personId)]?.[top.findIndex((t) => t.id === placeId)];
       ranked = rankPlaces(top, people, L.m.travel_mode, undefined, known);
       routed = true;
+      routedBy = source;
       for (const r of ranked) for (const p of people) if (known(p.id, r.place.id) == null) delete r.minutes[p.id]; // keep only routed cells
     } catch {
       routed = false; // the estimate is always there to fall back on
@@ -396,8 +418,8 @@ meetups.post('/:id/middle', async (c) => {
   await deps.db.batch([
     ['delete from places where meetup_id = $1', [L.m.id]],
     ...ranked.map((r, i): [string, unknown[]] => [
-      'insert into places (id, meetup_id, provider, provider_ref, name, address, lat, lng, rating, open_now, longest_min, position, routed) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)',
-      [ids[i], L.m.id, found.provider, r.place.ref, r.place.name, r.place.address, r.place.lat, r.place.lng, r.place.rating, r.place.openNow, r.longest, i, routed],
+      'insert into places (id, meetup_id, provider, provider_ref, name, address, lat, lng, rating, open_now, longest_min, position, routed, routed_by) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)',
+      [ids[i], L.m.id, found.provider, r.place.ref, r.place.name, r.place.address, r.place.lat, r.place.lng, r.place.rating, r.place.openNow, r.longest, i, routed, routed ? routedBy : null],
     ]),
     ...(routed ? ranked.flatMap((r, i) => Object.entries(r.minutes).map(([personId, minutes]): [string, unknown[]] => ['insert into place_times (place_id, participant_id, minutes) values ($1, $2, $3)', [ids[i], personId, minutes]])) : []),
     ['update meetups set winning_category = $2, middle_lat = $3, middle_lng = $4, status = $5, chosen_place = null, updated_at = now() where id = $1', [L.m.id, winner, middle.lat, middle.lng, 'places']],

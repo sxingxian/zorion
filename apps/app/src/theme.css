@@ -79,6 +79,8 @@ h1, h2, p { margin: 0; }
 .wordmark { font-family: var(--display); font-weight: 700; letter-spacing: -0.035em; font-size: 22px; }
 .label { font-size: 14px; font-weight: 700; }
 .small { font-size: 13px; color: var(--muted); }
+.credit { font-size: 12px; line-height: 1.5; margin: 2px 0 0; }
+.credit a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
 
 /* ---------- controls ---------- */
 .btn { min-height: 56px; display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; border: 0; border-radius: 14px; padding: 0 18px; font-weight: 800; font-size: 17px; text-decoration: none; text-align: center; background: var(--accent); color: var(--ink); transition: transform 0.12s var(--ease), opacity 0.2s; }

@@ -429,7 +429,7 @@ function PlansPage({ admin }: { admin: AdminUser }) {
   const m = parseFloat(p.monthly), y = parseFloat(p.yearly);
   const pct = p.monthlyOn && p.yearlyOn && m > 0 && y > 0 ? Math.round((1 - y / (m * 12)) * 100) : null;
   const compare = pct === null ? null : pct > 0 ? `Yearly is ${pct}% cheaper than 12 months of monthly.` : pct < 0 ? 'Yearly costs more than 12 months of monthly.' : 'Yearly costs the same as 12 months of monthly.';
-  const transit = (p.free.travel.includes('transit') || p.pro.travel.includes('transit')) && cats && (cats.settings?.routing_provider ?? 'estimate') !== 'google';
+  const transit = (p.free.travel.includes('transit') || p.pro.travel.includes('transit')) && cats && !['google', 'onemap'].includes(cats.settings?.routing_provider ?? 'estimate');
   const save = () => {
     const next: typeof errors = {};
     if (p.monthlyOn && !(m >= 1)) next.monthly = 'Enter at least S$1, or switch off On sale.';
@@ -469,7 +469,7 @@ function PlansPage({ admin }: { admin: AdminUser }) {
             <div className="frow head"><span /><span className="c-free">Free</span><span className="c-pro">Pro</span></div>
             {ROWS.map(([label, key, kind]) => <div className="frow" key={key}><span>{label}</span><span className="c-free">{cell('free', label, key, kind)}</span><span className="c-pro">{cell('pro', label, key, kind)}</span></div>)}
           </div>
-          {transit && <div className="warn"><span>Transit times need Google routes, which are off.</span><a href="/admin/categories" onClick={(e) => { e.preventDefault(); go('/admin/categories'); }}>Turn on in Categories</a></div>}
+          {transit && <div className="warn"><span>Transit times need OneMap or Google routes, which are off. Until then they're estimated.</span><a href="/admin/categories" onClick={(e) => { e.preventDefault(); go('/admin/categories'); }}>Turn on in Categories</a></div>}
         </section>
       </div>
       {err && <div className="err" role="alert">{err}</div>}
@@ -655,45 +655,111 @@ const cuisines = (osm: string[]) => { const m = osm.join('').match(/\["cuisine"~
 const wordList = (s: string) => s.toLowerCase().split(/[,|]/).map((w) => w.trim().replace(/[^a-z_ ]/g, '')).filter(Boolean);
 const osmFor = (words: string[]) => [`["amenity"~"restaurant|fast_food|cafe|bar|pub"]["cuisine"~"${words.map((w) => w.replace(/ /g, '_')).join('|')}"]`];
 
-/** The key for a map service, shown under the choice that needs it. */
-function MapKey({ service, maps, routing, places, onChange }: { service: 'google' | 'ors'; maps: R; routing: string; places: string; onChange: () => void }) {
+type MapService = 'google' | 'ors' | 'geoapify' | 'onemap';
+const SERVICE: Record<MapService, { name: string; hint: string; placeholder: string; does: string }> = {
+  google: { name: 'Google', hint: 'In Google Cloud: turn on Places API (New), and Routes API for trip times, then create an API key.', placeholder: 'AIza…', does: 'Places, starting places and trip times. Paid past a free allowance.' },
+  geoapify: { name: 'Geoapify', hint: 'Free at myprojects.geoapify.com: create a project, then copy its API key.', placeholder: 'Paste the key', does: 'Places, starting places, walking and cycling times. 3,000 credits a day.' },
+  onemap: { name: 'OneMap', hint: 'Free account at onemap.gov.sg (Singapore Land Authority).', placeholder: '', does: 'Singapore only. Starting places, and walking, cycling and public transport times.' },
+  ors: { name: 'openrouteservice', hint: 'Free at openrouteservice.org, under API keys.', placeholder: 'Paste the key', does: 'Walking and cycling times. 500 a day.' },
+};
+
+/** Connect, replace or remove a map service. OneMap signs in with an account; the others take a key. */
+function MapKey({ service, maps, onChange, note }: { service: MapService; maps: R; onChange: () => void; note?: string }) {
   const { confirm, toast } = useKit();
   const [key, setKey] = useState('');
+  const [email, setEmail] = useState('');
   const [err, setErr] = useState<string | null>(null);
+  const [emailErr, setEmailErr] = useState<string | null>(null);
   const [replacing, setReplacing] = useState(false);
   const [sure, setSure] = useState(false);
   const [run, busy, runErr] = useRun();
   const s = maps[service] as R;
   const status = (maps.status ?? {}) as R;
-  const name = service === 'google' ? 'Google' : 'openrouteservice';
+  const { name, hint, placeholder } = SERVICE[service];
+  const account = service === 'onemap';
   const connect = async () => {
-    if (!key) { setErr(`Paste the ${name} key first.`); return; }
-    if (await confirm(`Connect ${name}`, (code) => call('PUT', `/maps/${service}`, { key, code }))) { setKey(''); setReplacing(false); toast(`${name} connected`); onChange(); }
+    if (account && !/^\S+@\S+\.\S+$/.test(email)) { setEmailErr('Enter the email of your OneMap account.'); return; }
+    if (!key) { setErr(account ? 'Enter the password.' : `Paste the ${name} key first.`); return; }
+    if (await confirm(`Connect ${name}`, (code) => call('PUT', `/maps/${service}`, account ? { email, password: key, code } : { key, code }))) { setKey(''); setEmail(''); setReplacing(false); toast(`${name} connected`); onChange(); }
   };
-  const fallback = service === 'google'
-    ? [places === 'google' && 'places come from OpenStreetMap', routing === 'google' && "trip times use Zorion's estimate"].filter(Boolean).join(' and ')
-    : "trip times use Zorion's estimate";
   const form = (
     <>
-      <Field label={`${name} key`} error={err} hint={service === 'google' ? 'In Google Cloud: turn on Places API (New), and Routes API for trip times, then create an API key.' : 'Free at openrouteservice.org, under API keys.'}>
-        <input className="input" type="password" autoComplete="off" placeholder={service === 'google' ? 'AIza…' : 'Paste the key'} value={key} onChange={(e) => { setKey(e.target.value.trim()); setErr(null); }} />
+      {account && <Field label="OneMap email" error={emailErr} hint={hint}><input className="input" type="email" autoComplete="off" value={email} onChange={(e) => { setEmail(e.target.value.trim()); setEmailErr(null); }} /></Field>}
+      <Field label={account ? 'OneMap password' : `${name} key`} error={err} hint={account ? 'Kept encrypted. Zorion never shows it again.' : hint}>
+        <input className="input" type="password" autoComplete={account ? 'new-password' : 'off'} placeholder={placeholder || undefined} value={key} onChange={(e) => { setKey(account ? e.target.value : e.target.value.trim()); setErr(null); }} />
       </Field>
-      <div className="row"><button className="btn solid" onClick={connect}>Connect</button>{replacing && <button className="btn" onClick={() => { setReplacing(false); setKey(''); setErr(null); }}>Cancel</button>}</div>
+      <div className="row"><button className="btn solid" onClick={connect}>Connect</button>{replacing && <button className="btn" onClick={() => { setReplacing(false); setKey(''); setEmail(''); setErr(null); }}>Cancel</button>}</div>
     </>
   );
-  if (!s?.set) return <div className="keybox">{form}<div className="warn"><span>Until a key is connected, {fallback}.</span></div></div>;
-  const routesOff = service === 'google' && routing === 'google' && status.google && status.google.routes === false;
-  const broken = service === 'google' ? status.google && !status.google.places : status.ors && !status.ors.ok;
+  const head = <div className="line flat"><strong>{name}</strong>{s?.set ? <span className="state ok">Connected</span> : <span className="state off">Not connected</span>}</div>;
+  if (!s?.set) return <div className="keybox">{head}<p className="sub">{SERVICE[service].does}</p>{form}{note && <div className="warn"><span>{note}</span></div>}</div>;
+  const routesOff = service === 'google' && status.google && status.google.routes === false;
+  const broken = service === 'google' ? status.google && !status.google.places : status[service] && !status[service].ok;
+  const paused = maps.usage?.paused?.[service] as string | null | undefined;
+  const today = (maps.usage?.services as R[] | undefined)?.filter((u) => u.provider === service && u.period === 'day') ?? [];
   return (
     <div className="keybox">
-      <div className="line flat"><span className="sub">{name} key</span><KeyHint s={s} /></div>
-      {broken && <div className="err">{name} refused this key at the last check, so {fallback}.</div>}
-      {routesOff && <div className="warn"><span>Routes API is off for this key, so trip times use Zorion's estimate. Turn it on in Google Cloud, then check again.</span><button className="btn" disabled={busy} onClick={() => run(async () => { const r = await call('POST', '/maps/check'); onChange(); if (r.error) throw new Error(r.error); }, 'Checked')}>Check again</button></div>}
+      {head}
+      <div className="line flat"><span className="sub">{account ? 'Account' : 'Key'}</span><KeyHint s={s} /></div>
+      {broken && <div className="err">{name} refused this {account ? 'sign-in' : 'key'} at the last check, so Zorion skips it.</div>}
+      {routesOff && <div className="warn"><span>Routes API is off for this key, so Google gives no trip times. Turn it on in Google Cloud, then check again.</span><button className="btn" disabled={busy} onClick={() => run(async () => { const r = await call('POST', '/maps/check'); onChange(); if (r.error) throw new Error(r.error); }, 'Checked')}>Check again</button></div>}
+      {paused && service !== 'google' && <div className="warn"><span>{name} refused a request, so Zorion skips it until {new Date(paused).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}.</span></div>}
+      {today.map((u) => <Meter key={u.key} label={`${u.label} today`} used={u.used} cap={u.limit ?? u.free} />)}
       {runErr && <div className="err" role="alert">{runErr}</div>}
+      {service === 'google' && maps.usage && <GoogleUsage usage={maps.usage} onChange={onChange} />}
       {replacing ? form : sure ? (
-        <div className="confirm" role="alert"><span><strong>Remove the {name} key?</strong> Then {fallback}.</span>
-          <div className="row"><button className="btn" onClick={() => setSure(false)}>Keep</button><button className="btn danger" onClick={async () => { if (await confirm(`Remove the ${name} key`, (code) => call('POST', `/maps/${service}/remove`, { code }))) { setSure(false); toast('Key removed'); onChange(); } }}>Remove</button></div></div>
-      ) : <div className="row"><button className="btn" onClick={() => setReplacing(true)}>Replace key</button><button className="btn danger" onClick={() => setSure(true)}>Remove</button></div>}
+        <div className="confirm" role="alert"><span><strong>Remove {name}?</strong> Zorion moves on to the next service.</span>
+          <div className="row"><button className="btn" onClick={() => setSure(false)}>Keep</button><button className="btn danger" onClick={async () => { if (await confirm(`Remove ${name}`, (code) => call('POST', `/maps/${service}/remove`, { code }))) { setSure(false); toast(`${name} removed`); onChange(); } }}>Remove</button></div></div>
+      ) : <div className="row"><button className="btn" onClick={() => setReplacing(true)}>{account ? 'Change account' : 'Replace key'}</button><button className="btn danger" onClick={() => setSure(true)}>Remove</button></div>}
+    </div>
+  );
+}
+
+function Meter({ label, used, cap }: { label: string; used: number; cap: number }) {
+  const pct = Math.min(100, Math.round((used / Math.max(cap, 1)) * 100));
+  return (
+    <div className="meter">
+      <div className="line flat"><span>{label}</span><span className="sub">{used.toLocaleString('en-GB')} of {cap.toLocaleString('en-GB')}</span></div>
+      <div className="bar" role="progressbar" aria-label={label} aria-valuemin={0} aria-valuemax={cap} aria-valuenow={used}><i style={{ width: `${pct}%` }} className={pct >= 100 ? 'full' : ''} /></div>
+    </div>
+  );
+}
+
+/** The order the app tries services in, as the app works it out (see placeLadder and routingLadder). */
+function ladders(places: string, routing: string, maps: R) {
+  const on = (k: MapService) => !!(maps[k] as R | undefined)?.set;
+  const P: Record<string, string> = { google: 'Google', geoapify: 'Geoapify', osm: 'OpenStreetMap' };
+  const placeOrder = [places, ...['geoapify', 'osm'].filter((p) => p !== places)].filter((p) => p === 'osm' || on(p as MapService)).map((p) => P[p]!);
+  const T: Record<string, string> = { google: 'Google', ors: 'openrouteservice', geoapify: 'Geoapify', osrm: 'OpenStreetMap routing', onemap: 'OneMap' };
+  const routable = (p: string) => p === 'osrm' || on(p as MapService);
+  const walk = routing === 'estimate' ? [] : [routing, ...['ors', 'geoapify', 'osrm', 'onemap'].filter((p) => p !== routing)].filter(routable);
+  const transit = routing === 'estimate' ? [] : [routing, 'onemap'].filter((p, i, a) => a.indexOf(p) === i && (p === 'google' || p === 'onemap') && on(p as MapService));
+  const lookup = [places === 'google' && on('google') ? 'Google' : null, on('onemap') ? 'OneMap (Singapore)' : null, on('geoapify') ? 'Geoapify' : null, 'OpenStreetMap'].filter(Boolean) as string[];
+  const words = (xs: string[]) => [...xs.map((x) => T[x] ?? x), "Zorion's estimate"].join(' → ');
+  return { places: placeOrder.join(' → '), walk: words(walk), transit: words(transit), lookup: lookup.join(' → ') };
+}
+
+const BUDGET_LABEL: Record<string, string> = { '50': 'At 50% of the free allowance', '75': 'At 75% of the free allowance', '90': 'At 90% of the free allowance', '100': 'When the free allowance is used up', paid: 'Never: keep using Google and pay' };
+const FREE_FALLBACK: Record<string, string> = { places_text: 'place searches', places_nearby: 'place searches', lookup: 'starting places', routes: 'trip times' };
+const until = (iso: string) => new Date(`${iso}T12:00:00Z`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+
+/** This month's Google use against the free allowance, and when to switch to the free services. */
+function GoogleUsage({ usage, onChange }: { usage: R; onChange: () => void }) {
+  const [run, , err] = useRun();
+  const services = (usage.services as R[]).filter((s) => s.provider === 'google');
+  const over = services.filter((s) => s.limit !== null && s.used >= s.limit);
+  return (
+    <div className="usage">
+      <div className="line flat"><strong>This month's Google use</strong><span className="sub">Resets {until(usage.resets)}</span></div>
+      {services.map((s) => <Meter key={s.key} label={s.label} used={s.used} cap={s.limit ?? s.free} />)}
+      {usage.pausedUntil && <div className="warn"><span>Google refused a request, so Zorion is using the free services until {new Date(usage.pausedUntil).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}.</span></div>}
+      {over.length > 0 && <div className="warn"><span>Free allowance reached. The free services handle {[...new Set(over.map((s) => FREE_FALLBACK[s.key]))].join(', ')} until {until(usage.resets)}.</span></div>}
+      <Field label="Switch to the free services" hint={usage.budget === 'paid' ? 'Google bills you for use past the free allowance. Set a budget alert in Google Cloud.' : 'Counts Zorion\'s own calls. If other apps share your Google billing account, pick a lower share.'}>
+        <select className="input" value={usage.budget} onChange={(e) => run(async () => { await call('PUT', '/settings', { google_budget: e.target.value }); onChange(); }, 'Saved')}>
+          {Object.entries(BUDGET_LABEL).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+        </select>
+      </Field>
+      {err && <div className="err" role="alert">{err}</div>}
     </div>
   );
 }
@@ -778,10 +844,33 @@ function Categories({ admin }: { admin: AdminUser }) {
         ) : (
           <section>
             <h2>Search</h2>
-            <Field label="Places come from"><select className="input" value={d.settings.places_provider} disabled={!edit} onChange={(e) => setting({ places_provider: e.target.value }, 'Saved')}><option value="osm">OpenStreetMap (free)</option><option value="google">Google Places</option></select></Field>
-            <Field label="Trip times come from"><select className="input" value={d.settings.routing_provider ?? 'estimate'} disabled={!edit} onChange={(e) => setting({ routing_provider: e.target.value }, 'Saved')}><option value="estimate">Zorion's estimate</option><option value="osrm">OpenStreetMap routing (free)</option><option value="ors">openrouteservice</option><option value="google">Google routes</option></select></Field>
-            {edit && maps && (d.settings.places_provider === 'google' || d.settings.routing_provider === 'google') && <MapKey service="google" maps={maps} places={d.settings.places_provider} routing={d.settings.routing_provider ?? 'estimate'} onChange={reloadMaps} />}
-            {edit && maps && d.settings.routing_provider === 'ors' && <MapKey service="ors" maps={maps} places={d.settings.places_provider} routing="ors" onChange={reloadMaps} />}
+            <Field label="Places come from" hint="Zorion starts here, then moves on when a service's free allowance runs out or it fails.">
+              <select className="input" value={d.settings.places_provider} disabled={!edit} onChange={(e) => setting({ places_provider: e.target.value }, 'Saved')}>
+                <option value="osm">OpenStreetMap (free)</option><option value="geoapify">Geoapify (free)</option><option value="google">Google Places</option>
+              </select>
+            </Field>
+            <Field label="Trip times come from">
+              <select className="input" value={d.settings.routing_provider ?? 'estimate'} disabled={!edit} onChange={(e) => setting({ routing_provider: e.target.value }, 'Saved')}>
+                <option value="estimate">Zorion's estimate (nothing leaves Zorion)</option><option value="onemap">OneMap (free, Singapore, with transit)</option><option value="ors">openrouteservice (free)</option><option value="geoapify">Geoapify (free)</option><option value="osrm">OpenStreetMap routing (free)</option><option value="google">Google routes</option>
+              </select>
+            </Field>
+            {maps && (() => {
+              const order = ladders(d.settings.places_provider ?? 'osm', d.settings.routing_provider ?? 'estimate', maps);
+              return (
+                <div className="order" aria-label="Order Zorion tries">
+                  <div className="line flat"><span className="sub">Places</span><span>{order.places}</span></div>
+                  <div className="line flat"><span className="sub">Starting places</span><span>{order.lookup}</span></div>
+                  <div className="line flat"><span className="sub">Walking, cycling</span><span>{order.walk}</span></div>
+                  <div className="line flat"><span className="sub">Transit</span><span>{order.transit}</span></div>
+                </div>
+              );
+            })()}
+            {edit && maps && (d.settings.places_provider === 'google' || d.settings.routing_provider === 'google' || (maps.google as R | undefined)?.set) && <MapKey service="google" maps={maps} onChange={reloadMaps} note="Until a key is connected, Zorion uses the free services." />}
+            {edit && maps && <>
+              <h3 className="sub-h">Free services</h3>
+              <p className="sub">Each one you connect is another step before Zorion falls back to its own estimate. They receive starting points and places, never names.</p>
+              {(['onemap', 'geoapify', 'ors'] as MapService[]).map((k) => <MapKey key={k} service={k} maps={maps} onChange={reloadMaps} note={(d.settings.routing_provider === k || d.settings.places_provider === k) ? 'Until it is connected, Zorion uses the next service.' : undefined} />)}
+            </>}
             <Field label="Blocked words in names" hint="One per line. Hosts can't use these in meetup or food option names."><textarea className="input" rows={5} disabled={!edit} value={blocked ?? ''} onChange={(e) => setBlocked(e.target.value)} /></Field>
           </section>
         )}
@@ -899,8 +988,8 @@ function Users({ admin, propose }: { admin: AdminUser; propose: (action: string,
 }
 
 // ---------- admins and activity ----------
-const PLACES: R = { osm: 'OpenStreetMap', google: 'Google Places' };
-const ROUTES: R = { estimate: "Zorion's estimate", osrm: 'OpenStreetMap routing', ors: 'openrouteservice', google: 'Google routes' };
+const PLACES: R = { osm: 'OpenStreetMap', geoapify: 'Geoapify', google: 'Google Places' };
+const ROUTES: R = { estimate: "Zorion's estimate", osrm: 'OpenStreetMap routing', ors: 'openrouteservice', geoapify: 'Geoapify', onemap: 'OneMap', google: 'Google routes' };
 const money = (c: number) => `S$${(c / 100).toFixed(2)}`;
 /** The log in plain words. */
 function describe(l: R, admins: R[]): string {
@@ -921,6 +1010,10 @@ function describe(l: R, admins: R[]): string {
       case 'maps.ors': return 'Connected an openrouteservice key';
       case 'maps.google.remove': return 'Removed the Google key';
       case 'maps.ors.remove': return 'Removed the openrouteservice key';
+      case 'maps.geoapify': return 'Connected a Geoapify key';
+      case 'maps.geoapify.remove': return 'Removed the Geoapify key';
+      case 'maps.onemap': return 'Connected a OneMap account';
+      case 'maps.onemap.remove': return 'Removed the OneMap account';
       case 'email.save': return 'Changed email settings';
       case 'email.test': return 'Sent a test email';
       case 'category.save': return `Saved food option ${l.target}${detail.active === false ? ' (hidden)' : ''}`;
@@ -929,6 +1022,7 @@ function describe(l: R, admins: R[]): string {
         if (l.target === 'places_provider') return `Changed places to ${PLACES[detail.value] ?? detail.value}`;
         if (l.target === 'routing_provider') return `Changed trip times to ${ROUTES[detail.value] ?? detail.value}`;
         if (l.target === 'blocked_words') return 'Changed blocked words';
+        if (l.target === 'google_budget') return detail.value === 'paid' ? 'Set Google to keep running past the free allowance' : detail.value === '100' ? 'Set Google to switch to free services when the free allowance is used up' : `Set Google to switch to free services at ${detail.value}% of the free allowance`;
         return 'Changed a setting';
       case 'admin.invite': return `Invited ${l.target} (${detail.role === 'super' ? 'full access' : 'support'})`;
       case 'admin.join': return 'Joined as an admin';

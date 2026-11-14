@@ -18,6 +18,7 @@ const GOOGLE_NO_ROUTES = ['AIza', 'SyNoRoutesNoRoutesNoRoutesNoRout34'].join('')
 const ORS_KEY = ['5b3ce3597851110001cf6248', 'fakefakefakefake'].join('');
 
 // Stand-ins for Stripe, Telegram and Resend.
+const GEOAPIFY_KEY = 'c'.repeat(32);
 const fakeFetch = (async (input: string, init?: RequestInit) => {
   const url = String(input);
   calls.push({ url, body: String(init?.body ?? '') });
@@ -36,6 +37,8 @@ const fakeFetch = (async (input: string, init?: RequestInit) => {
   if (url.includes('api.resend.com')) return json({ id: 'email_1' });
   if (url.includes('places.googleapis.com')) return (init?.headers as Record<string, string>)['x-goog-api-key']?.startsWith('AIza') ? json({ places: [{ id: 'p1' }] }) : json({ error: { message: 'API key not valid.' } }, 400);
   if (url.includes('routes.googleapis.com')) return (init?.headers as Record<string, string>)['x-goog-api-key'] === GOOGLE_NO_ROUTES ? json({ error: { message: 'Routes API has not been used in project' } }, 403) : json({ routes: [{ duration: '300s' }] });
+  if (url.includes('api.geoapify.com')) return url.includes(`apiKey=${GEOAPIFY_KEY}`) ? json({ results: [{ formatted: 'Bugis' }] }) : json({ message: 'Invalid apiKey' }, 401);
+  if (url.includes('onemap.gov.sg/api/auth')) return JSON.parse(String(init?.body)).password === 'right horse battery' ? json({ access_token: 't', expiry_timestamp: '1900000000' }) : json({ error: 'Invalid credentials' }, 401);
   if (url.includes('api.openrouteservice.org')) return (init?.headers as Record<string, string>).authorization === ORS_KEY ? json({ routes: [] }) : json({ error: { message: 'Access to this API has been disallowed' } }, 403);
   throw new Error(`unexpected ${url}`);
 }) as unknown as typeof fetch;
@@ -112,6 +115,23 @@ describe('keys set in the admin portal', () => {
     expect((await b('POST', '/maps/check')).body.status).toMatchObject({ google: { places: true, routes: true }, ors: { ok: true } });
     expect((await b('POST', '/maps/ors/remove', { code: await nextCode() })).body).toEqual({ ok: true });
     expect((await loadSettings(db, env.TOTP_KEY)).ORS_API_KEY).toBeUndefined();
+  });
+
+  it('connects the free services, and never shows any part of the OneMap password', async () => {
+    expect((await b('PUT', '/maps/geoapify', { key: 'b'.repeat(32), code: await nextCode() })).body.message).toContain('Invalid apiKey');
+    expect((await b('PUT', '/maps/geoapify', { key: GEOAPIFY_KEY, code: await nextCode() })).body).toEqual({ ok: true });
+    expect((await b('PUT', '/maps/onemap', { email: 'ops@example.sg', password: 'wrong', code: await nextCode() })).body.message).toContain('Invalid credentials');
+    expect((await b('PUT', '/maps/onemap', { email: 'Ops@Example.sg', password: 'right horse battery', code: await nextCode() })).body).toEqual({ ok: true });
+    const s = await loadSettings(db, env.TOTP_KEY);
+    expect([s.GEOAPIFY_KEY, s.ONEMAP_EMAIL, s.ONEMAP_PASSWORD]).toEqual([GEOAPIFY_KEY, 'ops@example.sg', 'right horse battery']);
+    const maps = (await b('GET', '/maps')).body;
+    expect(maps.onemap).toMatchObject({ set: true, hint: 'o•••@example.sg' });
+    expect(JSON.stringify(maps)).not.toMatch(/ttery|horse/);
+    expect(JSON.stringify(await db.query("select value from settings where key = 'env:ONEMAP_PASSWORD'"))).not.toMatch(/ttery/); // no hint kept either
+    expect(maps.usage.services.map((u: { key: string }) => u.key)).toContain('geoapify');
+    expect((await b('POST', '/maps/onemap/remove', { code: await nextCode() })).body).toEqual({ ok: true });
+    expect((await loadSettings(db, env.TOTP_KEY)).ONEMAP_PASSWORD).toBeUndefined();
+    expect((await b('POST', '/maps/elsewhere/remove', { code: await nextCode() })).status).toBe(404);
   });
 
   it('connects a Telegram bot from its token alone', async () => {

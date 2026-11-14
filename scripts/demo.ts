@@ -28,6 +28,8 @@ const TYPES: Record<string, string> = { '.html': 'text/html; charset=utf-8', '.j
 // Made-up places scattered around wherever the search is centred.
 const NAMES = ['Lucky Trotter', 'Midnight Oven', 'Pink Hat Kitchen', 'Fair Middle', 'Star Table', 'The Snout', 'Poetry Corner', 'Good Fortune'];
 const fakePlaces = (async (_url: string, init?: RequestInit) => {
+  // The other map services aren't faked: Zorion moves on to the next, as it would if they were down.
+  if (/onemap\.gov\.sg|geoapify\.com/.test(String(_url))) return new Response('not in the demo', { status: 503 });
   if (String(_url).includes('nominatim')) {
     // Made-up matches for a typed starting place.
     const q = new URL(String(_url)).searchParams.get('q') ?? 'Somewhere';

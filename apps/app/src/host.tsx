@@ -1,6 +1,7 @@
 import { type ReactNode, useCallback, useEffect, useState } from 'react';
 import { LIMITS, OWN_ICONS, halfRoundedUp } from '@zorion/core';
 import { CrewMap, ring } from './map';
+import { Credits } from './sources';
 import { StartPicker } from './start';
 import { ApiError, Link, type Me, api, deviceZone, fromLocalInput, navigate, toLocalInput, useAction, when } from './lib';
 import { Btn, Check, Chevron, Chip, Facts, Field, Header, Icon, Loading, Mascot, Note, Oops, Person, Pick, Plus, Remove, Seg, AdSlot, Sponsored, Switch, Tally, Toast, copyText, locate } from './ui';
@@ -353,7 +354,7 @@ export function HostMeetup({ me, id, sub, pid, m, setM }: { me: Me; id: string; 
               <>
                 {typing ? (
                   <>
-                    <StartPicker saving={busy} search={async (q) => (await api('POST', `/meetups/${id}/start-search`, { q })).results} onPick={(at) => run(async () => { setM((await api('POST', `/meetups/${id}/location`, at)).meetup); setTyping(false); })} />
+                    <StartPicker saving={busy} search={async (q) => (await api('POST', `/meetups/${id}/start-search`, { q }))} onPick={(at) => run(async () => { setM((await api('POST', `/meetups/${id}/location`, at)).meetup); setTyping(false); })} />
                     <Btn kind="text" onClick={() => setTyping(false)}>Use my location instead</Btn>
                   </>
                 ) : (
@@ -394,9 +395,10 @@ export function HostMeetup({ me, id, sub, pid, m, setM }: { me: Me; id: string; 
       <>
         <Header title={m.name} sub={catName(m, m.winner)} back="/" step={3} />
         <main className="screen" style={{ gap: 10 }}>
-          <div className="row between" style={{ alignItems: 'flex-end' }}><div className="stack" style={{ gap: 2 }}><h2 className="display h1">Closest to everyone</h2><p className="small">{sel.length === 1 ? 'One place: no vote needed.' : `Pick 1, or up to ${m.maxShortlist} for a vote.`}{m.places.some((p: M) => p.routed) ? '' : ' Times are estimates.'}</p></div><Chip>{sel.length} of {m.maxShortlist}</Chip></div>
+          <div className="row between" style={{ alignItems: 'flex-end' }}><div className="stack" style={{ gap: 2 }}><h2 className="display h1">Closest to everyone</h2><p className="small">{sel.length === 1 ? 'One place: no vote needed.' : `Pick 1, or up to ${m.maxShortlist} for a vote.`}</p></div><Chip>{sel.length} of {m.maxShortlist}</Chip></div>
           <Facts rows={[['Middle', `Up to ${longest} min for anyone`]]} />
           <div className="stack" style={{ gap: 6 }}>{m.places.map((p: M, i: number) => <Pick key={p.id} on={sel.includes(p.id)} onClick={() => flip(p.id)} lead={<span className="display h2" style={{ width: 22, color: 'var(--muted)' }}>{i + 1}</span>} title={p.name} meta={`${p.rating ? `★ ${p.rating} · ` : ''}up to ${p.longest} min${p.openNow === false ? ' · closed now' : ''}`} />)}</div>
+          <Credits places={m.places} />
           <Sponsored placement="shortlist" category={m.winner} show={me.features.ads} />
           <Oops>{error}</Oops>
           <Btn className="push" busy={busy} disabled={sel.length === 0} onClick={() => (sel.length === 1 ? call('/shortlist', { ids: sel }) : setStep('own'))}>{sel.length === 1 ? `Lock in ${m.places.find((p: M) => p.id === sel[0]).name}` : 'Next'}</Btn>
@@ -418,6 +420,7 @@ export function HostMeetup({ me, id, sub, pid, m, setM }: { me: Me; id: string; 
           <div className="row between" style={{ alignItems: 'flex-end' }}><div className="stack" style={{ gap: 2 }}><h2 className="display h1">Final vote</h2></div><Chip>{voted} of {m.people.filter((p: M) => p.rsvp !== 'no').length} voted</Chip></div>
           {linkCard}
           <div className="stack" role="radiogroup" aria-label="Place to lock in">{short.map((p: M) => <Pick key={p.id} radio on={sel === p.id} onClick={() => setPick(p.id)} title={p.name} meta={`${p.votes} ${p.votes === 1 ? 'vote' : 'votes'} · up to ${p.longest} min`} />)}</div>
+          <Credits places={short} />
           {tie && <Note>It's a tie. You pick.</Note>}
           <Oops>{error}</Oops>
           <Btn className="push" busy={busy} disabled={!sel} onClick={() => call('/lock', { id: sel })}>Lock in {sel ? short.find((p: M) => p.id === sel).name : 'a place'}</Btn>

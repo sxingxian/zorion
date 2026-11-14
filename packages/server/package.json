@@ -5,6 +5,7 @@
   "type": "module",
   "exports": {
     "./crypto": "./src/crypto.ts",
-    "./settings": "./src/settings.ts"
+    "./settings": "./src/settings.ts",
+    "./usage": "./src/usage.ts"
   }
 }
