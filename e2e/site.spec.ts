@@ -4,13 +4,13 @@ import { SITE, tap, totp } from './helpers';
 
 test.use({ viewport: { width: 1280, height: 800 } });
 
-test('landing page: headline, the map where routes meet, plans from the admin, and no page errors', async ({ page }) => {
+test('landing page: headline, the 3D map where routes meet, plans from the admin, and no page errors', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(String(e)));
   await page.goto(SITE);
   await expect(page.getByRole('heading', { level: 1, name: 'Meet in the middle.' })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Start a meetup, free' }).first()).toHaveAttribute('href', 'http://localhost:5173');
-  await expect(page.locator('.lp-hero-map .dash')).toBeVisible();
+  await expect(page.locator('.lp-hero.is3d .lp-city canvas')).toBeVisible({ timeout: 15_000 }); // the 3D city replaced the drawn map
   await expect(page.getByRole('heading', { name: 'Zorion finds the fair middle.' })).toBeVisible();
   await expect(page.locator('.lp-table')).toContainText('Up to 30');
   await expect(page.locator('ins.adsbygoogle')).toHaveCount(0); // no Google ads on the landing page
@@ -24,10 +24,11 @@ test('landing page on a phone shows the map under the words, and with reduced mo
   page.on('request', (r) => { if (r.resourceType() === 'script') scripts.push(r.url()); });
   await page.goto(SITE);
   await page.waitForTimeout(1500);
-  await expect(page.locator('.lp-hero-mobile svg').first()).toBeVisible();
+  await expect(page.locator('.lp-hero-mobile > svg').first()).toBeVisible(); // the drawn map stays
+  await expect(page.locator('.lp-city canvas')).toHaveCount(0);
   await expect(page.locator('.lp-hero-map')).toBeHidden();
   expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
-  expect(scripts.some((u) => /gsap|lenis/.test(u))).toBe(false);
+  expect(scripts.some((u) => /gsap|lenis|hero3d/.test(u))).toBe(false);
 });
 
 test('a missing page on the site shows Zorion\'s own page', async ({ page }) => {

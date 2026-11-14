@@ -88,11 +88,51 @@ export function Landing() {
     return () => { live = false; stop(); };
   }, []);
 
+  // The hero map becomes a small 3D city once the page has settled. The drawn map stays underneath as
+  // the fallback: for reduced motion, for devices without WebGL, and until the first frame is drawn.
+  const hero = useRef<HTMLElement>(null);
+  const stage = useRef<HTMLDivElement>(null);
+  const phoneStage = useRef<HTMLDivElement>(null);
+  const pig = useRef<HTMLDivElement>(null);
+  const phonePig = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    let webgl = false;
+    try { const c = document.createElement('canvas'); webgl = !!(c.getContext('webgl2') || c.getContext('webgl')); } catch { webgl = false; }
+    if (!webgl) return;
+    const phone = matchMedia('(max-width: 760px)');
+    let stop = () => {};
+    let live = true;
+    let run = 0;
+    const mount = () => {
+      stop();
+      stop = () => {};
+      hero.current?.classList.remove('is3d');
+      const mine = ++run;
+      import('./hero3d').then(({ mountHero }) => {
+        const box = phone.matches ? phoneStage.current : stage.current;
+        if (!live || mine !== run || !box) return;
+        const el = hero.current;
+        try { stop = mountHero(box, phone.matches ? phonePig.current : pig.current, () => el?.classList.add('is3d')); } catch { el?.classList.remove('is3d'); }
+      }).catch(() => {});
+    };
+    // Wait for the headline to paint first, so the scene never competes with it.
+    const timer = window.setTimeout(mount, 350);
+    phone.addEventListener('change', mount);
+    return () => {
+      live = false;
+      clearTimeout(timer);
+      phone.removeEventListener('change', mount);
+      stop();
+      hero.current?.classList.remove('is3d');
+    };
+  }, []);
+
   const plans = config?.plans ?? DEFAULT_PLANS;
   return (
     <div className="lp" ref={root}>
       {/* ---------- hero ---------- */}
-      <section className="lp-hero">
+      <section className="lp-hero" ref={hero}>
         <svg className="lp-hero-map" viewBox="0 0 1440 940" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
           <Streets w={1440} h={940} />
           <path className="dash" d={routes(HERO_PINS, 720, 770)} fill="none" stroke="#0b0b0d" strokeWidth="4" strokeDasharray="10 10" strokeLinecap="round" strokeLinejoin="round" />
@@ -100,6 +140,7 @@ export function Landing() {
           <circle className="ping late" cx="720" cy="770" r="56" fill="#ffa6fc" />
           <Pins pins={HERO_PINS} r={24} size={18} />
         </svg>
+        <div className="lp-city" ref={stage} />
         <div className="lp-glow" aria-hidden="true" />
         <header className="lp-top">
           <a className="brandmark" href="/"><Head size={44} />Zorion</a>
@@ -110,7 +151,7 @@ export function Landing() {
           <p>Good fortune, fair walk. Zorion finds the place that's a fair walk for everyone in your group.</p>
           <a className="cta" href={app}>Start a meetup, free</a>
           <small>Friends join from a link. No sign-up, no app.</small>
-          <div className="lp-hero-pig bob"><Pig w={190} label="Zorion the black pig, standing at the middle" /></div>
+          <div className="lp-hero-pig bob" ref={pig}><Pig w={190} label="Zorion the black pig, standing at the middle" /></div>
         </div>
         {/* Phones get the map as its own block under the words, like the mockup. */}
         <div className="lp-hero-mobile">
@@ -123,7 +164,8 @@ export function Landing() {
             <circle cx="195" cy="187" r="27" fill="#fff" stroke="#0b0b0d" strokeWidth="2" />
             <g transform="translate(176 169) scale(0.32)" dangerouslySetInnerHTML={{ __html: ART.headChef! }} />
           </svg>
-          <div className="bob"><Pig w={130} label="Zorion the black pig" /></div>
+          <div className="lp-city" ref={phoneStage} />
+          <div className="bob" ref={phonePig}><Pig w={130} label="Zorion the black pig" /></div>
         </div>
       </section>
 

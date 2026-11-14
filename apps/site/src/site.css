@@ -32,6 +32,11 @@ button, input, select { font: inherit; color: inherit; }
 .lp-intro small { font-size: 15px; color: var(--muted); }
 .lp-hero-pig { margin-top: 22px; }
 .lp-hero-mobile { display: none; }
+/* The 3D city fades in over the drawn map once its first frame is ready. */
+.lp-city { position: absolute; inset: 0; opacity: 0; transition: opacity 0.9s ease; pointer-events: none; }
+.lp-city canvas { display: block; width: 100%; height: 100%; }
+.lp-hero.is3d .lp-city { opacity: 1; }
+.lp-hero.is3d .lp-hero-map, .lp-hero.is3d .lp-hero-mobile > svg { visibility: hidden; }
 .dash { animation: dash 1.4s linear infinite; }
 .ping { transform-box: fill-box; transform-origin: center; animation: ping 2.6s ease-out infinite; }
 .ping.late { animation-delay: 1.3s; }
@@ -97,8 +102,9 @@ button, input, select { font: inherit; color: inherit; }
   .lp-intro .cta { align-self: stretch; }
   .lp-intro small { font-size: 14px; }
   .lp-hero-mobile { display: block; position: relative; height: 380px; margin-top: 20px; overflow: hidden; }
-  .lp-hero-mobile svg:first-child { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+  .lp-hero-mobile > svg:first-child { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
   .lp-hero-mobile .bob { position: absolute; right: 8px; bottom: 0; }
+  .lp-hero.is3d .lp-hero-mobile .bob { right: auto; left: 50%; margin-left: -65px; bottom: 96px; }
   .lp-scene, .lp-scene.tall { min-height: 0; padding-bottom: 36px; }
   .lp-scene > .lp-scene-map { height: 380px; bottom: auto; }
   .lp-floats { position: relative; height: 380px; }
