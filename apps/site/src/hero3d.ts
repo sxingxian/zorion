@@ -188,28 +188,36 @@ export function mountHero(box: HTMLElement, target: HTMLElement | null, onReady:
   let raf = 0;
   let first = true;
   const start = performance.now();
+  const ease = (x: number) => 1 - Math.pow(1 - Math.min(Math.max(x, 0), 1), 3);
+  const PLAN = 1.5; // camera angle for the flat plan view (just short of straight down)
   const frame = (now: number) => {
     raf = requestAnimationFrame(frame);
     if (!visible || document.hidden || !w || !h) return;
     const t = (now - start) / 1000;
-    const scrolled = Math.min(Math.max(window.scrollY / Math.max(h, 1), 0), 1);
+    const freeze = (window as unknown as { __hero?: { a: number; s?: number } }).__hero;
+    // Arrival: the city starts as the flat plan (matching the drawn map) and rises over 1.8 s.
+    const arrive = freeze ? freeze.a : ease((t - 0.1) / 1.8);
+    // Scroll: as the map leaves the middle of the screen, it settles back into the flat plan.
+    const b = box.getBoundingClientRect();
+    const away = freeze?.s !== undefined ? freeze.s : Math.min(Math.max((window.innerHeight / 2 - (b.top + b.height / 2)) / (window.innerHeight * 0.6), 0), 1);
+    const flat = Math.max(1 - arrive, ease(away));
     easedX += (pointerX - easedX) * 0.05;
     easedY += (pointerY - easedY) * 0.05;
-    // A slow drift, a nudge from the pointer, and a dive toward street level as the page scrolls.
-    const dist = w < 600 ? 31 : 24; // phones show the map as a small block, so step back to fit everyone
-    const lift = 0.86 - scrolled * 0.34 + easedY * 0.05;
-    const turn = 0.5 + Math.sin(t * 0.12) * 0.07 + easedX * 0.22 + scrolled * 0.35;
+    const dist = (w < 600 ? 31 : 24) * (1 + 0.45 * flat); // step back in the plan view so all six friends fit
+    const lift = 0.86 + (PLAN - 0.86) * flat + easedY * 0.05 * (1 - flat);
+    const turn = (0.5 + Math.sin(t * 0.12) * 0.07 + easedX * 0.22) * (1 - flat);
+    blocks.scale.y = Math.max(1 - flat, 0.02);
     look.set(MIDDLE.x, 0, MIDDLE.z);
     camera.position.set(look.x + Math.sin(turn) * Math.cos(lift) * dist, Math.sin(lift) * dist, look.z + Math.cos(turn) * Math.cos(lift) * dist);
     camera.lookAt(look);
-    // Slide the picture so the middle sits under the pig. Pixels can only shift, so this keeps the angle.
     camera.clearViewOffset();
     camera.updateMatrixWorld();
     feet.copy(look).project(camera);
     camera.setViewOffset(w, h, ((feet.x + 1) / 2) * w - tx, ((1 - feet.y) / 2) * h - ty, w, h);
     disc.scale.setScalar(1 + Math.sin(t * 1.6) * 0.06);
-    pins.forEach((p, i) => { p.position.y = 0.12 + Math.sin(t * 1.4 + i * 1.3) * 0.08; });
-    walkers.forEach((wk, i) => { along(paths[i]!, (t * 0.11 + i * 0.21) % 1, spot); wk.position.set(spot.x, 0.13, spot.z); });
+    // Seen from above, a pin is the drawn map's circle and letter, so pins stay put throughout.
+    pins.forEach((p, i) => { p.position.y = 0.12 + Math.sin(t * 1.4 + i * 1.3) * 0.08 * (1 - flat); });
+    walkers.forEach((wk, i) => { along(paths[i]!, (t * 0.11 + i * 0.21) % 1, spot); wk.position.set(spot.x, 0.13, spot.z); wk.visible = arrive > 0.9; });
     renderer.render(scene, camera);
     if (first) {
       first = false;

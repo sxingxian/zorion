@@ -35,6 +35,8 @@ button, input, select { font: inherit; color: inherit; }
 /* The 3D city fades in over the drawn map once its first frame is ready. */
 .lp-city { position: absolute; inset: 0; opacity: 0; transition: opacity 0.9s ease; pointer-events: none; }
 .lp-city canvas { display: block; width: 100%; height: 100%; }
+/* Soft edges: the city fades into the page above and into the next scene's map below, so there is no seam. */
+.lp-hero .lp-city { -webkit-mask-image: linear-gradient(#000 78%, transparent); mask-image: linear-gradient(#000 78%, transparent); }
 .lp-hero.is3d .lp-city { opacity: 1; }
 .lp-hero.is3d .lp-hero-map, .lp-hero.is3d .lp-hero-mobile > svg { visibility: hidden; }
 .dash { animation: dash 1.4s linear infinite; }
@@ -101,7 +103,8 @@ button, input, select { font: inherit; color: inherit; }
   .lp-intro p { font-size: 17px; }
   .lp-intro .cta { align-self: stretch; }
   .lp-intro small { font-size: 14px; }
-  .lp-hero-mobile { display: block; position: relative; height: 380px; margin-top: 20px; overflow: hidden; }
+  .lp-hero-mobile { display: block; position: relative; height: 380px; margin-top: 20px; overflow: hidden; background: linear-gradient(#fff, #ececf0); }
+  .lp-hero-mobile .lp-city { -webkit-mask-image: linear-gradient(transparent, #000 18%, #000 76%, transparent); mask-image: linear-gradient(transparent, #000 18%, #000 76%, transparent); }
   .lp-hero-mobile > svg:first-child { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
   .lp-hero-mobile .bob { position: absolute; right: 8px; bottom: 0; }
   .lp-hero.is3d .lp-hero-mobile .bob { right: auto; left: 50%; margin-left: -65px; bottom: 96px; }
