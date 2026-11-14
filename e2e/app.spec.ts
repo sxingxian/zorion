@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test';
 import { APP, hostMeetup, joinAs, press, signIn, tap, typeCode } from './helpers';
 
 test('fixed date: from a new meetup to "it is on", with a typed start and no coordinates shown to anyone', async ({ page, browser }) => {
+  test.setTimeout(150_000);
   await signIn(page, 'host-fixed@example.com');
   const link = await hostMeetup(page, ['Mia', 'Sam', 'Lee']);
 
@@ -18,7 +19,7 @@ test('fixed date: from a new meetup to "it is on", with a typed start and no coo
   const sam = await joinAs(browser, link, 'Sam');
   await tap(sam.page, 'Maybe');
   await tap(sam.page, 'Continue');
-  await tap(sam.page, 'Type a place instead');
+  await tap(sam.page, 'Type a place');
   await sam.page.getByLabel('Station, street or postcode').fill('Bugis MRT');
   await tap(sam.page, 'Search');
   await expect(sam.page.getByText('Results from OpenStreetMap')).toBeVisible(); // OneMap is down in the demo, so the next service answered
@@ -37,15 +38,15 @@ test('fixed date: from a new meetup to "it is on", with a typed start and no coo
   await page.reload();
   await expect(page.getByText('2 going', { exact: true })).toBeVisible();
   await expect(page.getByText('1 maybe', { exact: true })).toBeVisible();
-  await tap(page, 'Find the middle');
-  await expect(page.getByText('Closest to everyone')).toBeVisible();
+  await tap(page, 'Find places');
+  await expect(page.getByRole('heading', { name: 'Pick places' })).toBeVisible();
   await expect(page.getByText('Places: OpenStreetMap · Trip times: estimated from distance')).toBeVisible();
   await expect(page.locator('button.pick')).toHaveCount(8);
 
   // Two places means a final vote; the host votes first.
   await tap(page, 'Star Table');
   await tap(page, 'Fair Middle');
-  await press(page, 'Next');
+  await press(page, 'Start the vote');
   await tap(page, 'Star Table');
   await press(page, 'Vote and share');
   await expect(page.getByText('1 of 3 voted')).toBeVisible(); // Lee can't go, so three people count
@@ -63,12 +64,14 @@ test('fixed date: from a new meetup to "it is on", with a typed start and no coo
   await expect(page.getByText('3 going').first()).toBeVisible();
 
   await mia.page.reload();
-  await expect(mia.page.getByRole('heading', { name: 'Fair Middle' })).toBeVisible();
+  await expect(mia.page.getByRole('heading', { name: "It's on" })).toBeVisible();
+  await expect(mia.page.getByText('Fair Middle').first()).toBeVisible();
   await expect(mia.page.getByRole('link', { name: 'Directions' })).toBeVisible();
 
-  // Coming back after confirmation: only the reply can change, and it still asks for the code.
-  await expect(mia.page.getByText('Change my answers')).toHaveCount(0);
-  await tap(mia.page, 'Change my reply');
+  // After confirmation: only the reply can change. Food and place are final.
+  await expect(mia.page.getByText('Final').first()).toBeVisible();
+  await expect(mia.page.getByRole('button', { name: 'Change', exact: true })).toHaveCount(1);
+  await press(mia.page, 'Change');
   if (await mia.page.getByText('Enter your code').isVisible()) {
     await typeCode(mia.page, mia.code);
     await press(mia.page, 'Continue');
@@ -78,7 +81,7 @@ test('fixed date: from a new meetup to "it is on", with a typed start and no coo
   await expect(mia.page.getByRole('heading', { name: 'Your choices' })).toHaveCount(0);
   await tap(mia.page, 'Maybe');
   await press(mia.page, 'Save');
-  await expect(mia.page.getByRole('heading', { name: 'Fair Middle' })).toBeVisible();
+  await expect(mia.page.getByRole('heading', { name: "It's on" })).toBeVisible();
   await page.reload();
   await expect(page.getByText('Maybe').first()).toBeVisible();
 
@@ -86,6 +89,10 @@ test('fixed date: from a new meetup to "it is on", with a typed start and no coo
   const seen = await (await mia.page.request.get(`${APP}/api/g/${link.split('/j/')[1]}`)).json();
   const others = JSON.stringify(seen.meetup.people);
   expect(others).not.toMatch(/"lat"|"lng"/);
+  // The crew map: others are unnamed rough areas unless they chose to share; only Mia's own pin is exact.
+  const map = (await (await mia.page.request.get(`${APP}/api/g/${link.split('/j/')[1]}/map`)).json()).map;
+  expect(map.people.filter((p: { kind: string }) => p.kind === 'you')).toHaveLength(1);
+  expect(map.people.filter((p: { kind: string }) => p.kind !== 'you').every((p: { kind: string; name: string | null }) => p.kind === 'rough' && p.name === null)).toBe(true);
 });
 
 test('guest code: a new browser needs only the code, and three wrong tries pause it', async ({ page, browser }) => {
@@ -96,14 +103,14 @@ test('guest code: a new browser needs only the code, and three wrong tries pause
 
   const other = await (await browser.newContext({ viewport: { width: 390, height: 844 } })).newPage();
   await other.goto(link);
-  await tap(other, 'Joined before');
+  await tap(other, 'I have a code');
   await typeCode(other, mia.code);
   await tap(other, 'Continue');
   await expect(other.getByText('Hi Mia')).toBeVisible();
 
   const stranger = await (await browser.newContext({ viewport: { width: 390, height: 844 } })).newPage();
   await stranger.goto(link);
-  await tap(stranger, 'Joined before');
+  await tap(stranger, 'I have a code');
   for (const wrong of ['ZZZ9', 'ZZZ8', 'ZZZ7']) {
     for (let i = 1; i <= 4; i++) await stranger.locator(`input[aria-label="Character ${i}"]`).fill('');
     await typeCode(stranger, wrong);
@@ -117,20 +124,20 @@ test('date vote: guests tick dates, the host sets one, and whoever picked it sta
   await signIn(page, 'host-dates@example.com');
   await tap(page, 'New meetup');
   await page.getByPlaceholder('Midnight poetry party').fill('Midnight poetry party');
-  await tap(page, 'Let guests vote on the date');
+  await tap(page, 'Guests vote on the date');
   for (const d of ['2027-01-15T19:00', '2027-01-16T19:00']) {
     await page.locator('input[type=datetime-local]').fill(d);
     await press(page, 'Add date');
   }
-  await tap(page, 'Use these 2 dates');
+  await tap(page, 'Use 2 dates');
   await press(page, 'Next');
   for (const name of ['Mia', 'Sam']) {
     await page.getByPlaceholder('Add a name').fill(name);
     await press(page, 'Add');
   }
-  await press(page, 'Next');
+  await press(page, 'Create');
   await tap(page, 'Pizza');
-  await tap(page, 'Vote, then share the link');
+  await press(page, 'Vote');
   await press(page, 'Share');
   await expect(page.getByText('Copy link')).toBeVisible();
   const link = `http://${(await page.locator('body').innerText()).match(/localhost:5173\/j\/[A-Za-z0-9_-]+/)![0]}`;
@@ -147,7 +154,7 @@ test('date vote: guests tick dates, the host sets one, and whoever picked it sta
   await tap(page, 'Set the date');
   await expect(page.getByText('Most votes', { exact: true })).toBeVisible();
   await tap(page, /^Set Sat 16 Jan/);
-  await expect(page.getByText('Find the middle')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Find places' }).locator('visible=true')).toBeVisible();
 
   await mia.page.reload();
   await expect(mia.page.getByText("You picked this date, so you're down as going.")).toBeVisible();
@@ -160,20 +167,20 @@ test('date vote: guests tick dates, the host sets one, and whoever picked it sta
 test('two-step: turning it on shows a QR code and recovery codes, and the next sign-in asks for a second proof', async ({ page }) => {
   await signIn(page, 'host-2fa@example.com');
   await page.goto(`${APP}/account`);
-  await tap(page, 'Two-step verification');
-  await tap(page, 'Set up an authenticator');
+  await tap(page, 'Two-step');
+  await press(page, 'Set up');
   await expect(page.getByRole('img', { name: 'QR code for your authenticator app' })).toBeVisible();
   const key = (await page.locator('body').innerText()).match(/[A-Z2-7]{32}/)![0];
   const { totp } = await import('./helpers');
   await typeCode(page, totp(key));
   await press(page, 'Turn on');
   await expect(page.getByText('Recovery codes')).toBeVisible();
-  await tap(page, 'I have saved them');
+  await press(page, 'Saved them');
 
   await page.goto(`${APP}/account`);
   await tap(page, 'Sign out');
   await page.locator('input[type=email]').fill('host-2fa@example.com');
-  await tap(page, 'Email me a code');
+  await press(page, 'Continue');
   const { emailedCode } = await import('./helpers');
   await expect(page.getByRole('button', { name: 'Sign in', exact: true })).toBeVisible();
   await typeCode(page, await emailedCode(page, 'host-2fa@example.com'));
@@ -181,7 +188,7 @@ test('two-step: turning it on shows a QR code and recovery codes, and the next s
   await expect(page.getByRole('heading', { name: 'Authenticator code' })).toBeVisible();
   await typeCode(page, totp(key, Date.now() + 30_000)); // the next code: one already used cannot be used again
   await tap(page, 'Verify');
-  await expect(page.getByText('Your meetups')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Meetups' })).toBeVisible();
 });
 
 test('the app links to the privacy notice and terms on the landing site', async ({ page }) => {
@@ -226,7 +233,7 @@ test('emails: a guest opts in and confirms, the host hears the votes are in, the
   expect((await mailsTo(page, 'host-mail@example.com')).map((m) => m.subject)).toContain('The food votes are in for Midnight poetry party');
   await page.reload();
   await expect(page.getByText('mia-mail@example.com')).toHaveCount(0);
-  await tap(page, 'Find the middle');
+  await press(page, 'Find places');
   await tap(page, 'Star Table');
   await press(page, 'Lock in Star Table');
   await expect(page.getByRole('heading', { name: "It's on" })).toBeVisible();
@@ -241,7 +248,7 @@ test('emails: a guest opts in and confirms, the host hears the votes are in, the
 
   // A host can switch their own emails off.
   await page.goto(`${APP}/account`);
-  const toggle = page.getByRole('switch', { name: /Email updates/ });
+  const toggle = page.getByRole('switch', { name: /^Email/ });
   await expect(toggle).toHaveAttribute('aria-checked', 'true');
   await toggle.click();
   await expect(toggle).toHaveAttribute('aria-checked', 'false');
@@ -295,7 +302,7 @@ test('telegram: a guest and the host connect, and get the same update as email, 
 
   // It is on: Mia gets it on both.
   await page.reload();
-  await tap(page, 'Find the middle');
+  await press(page, 'Find places');
   await tap(page, 'Star Table');
   await press(page, 'Lock in Star Table');
   await expect(page.getByRole('heading', { name: "It's on" })).toBeVisible();

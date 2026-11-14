@@ -307,3 +307,45 @@ button, input, select { font: inherit; color: inherit; }
 .adm .order .line > span:last-child { font-weight: 600; }
 .adm .sub-h { font-size: 15px; font-weight: 800; margin: 12px 0 0; }
 @media (max-width: 760px) { .adm .order .line { flex-direction: column; align-items: flex-start; gap: 2px; } .adm .order .line > span:last-child { text-align: left; } }
+
+/* ---------- redesign: grouped nav, overview, tables, paging, maps ---------- */
+.adm aside nav { gap: 14px; }
+.adm .navgroup { display: flex; flex-direction: column; gap: 2px; }
+.adm .navh { font-size: 11px; font-weight: 700; color: #8a8a94; text-transform: uppercase; letter-spacing: 0.06em; padding: 0 14px 4px; }
+.adm .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(170px, 100%), 1fr)); gap: 14px; }
+.adm .kpis section { gap: 6px; animation: admrise 0.44s cubic-bezier(0.2, 0.8, 0.2, 1) backwards; }
+.adm .kpis section:nth-child(2) { animation-delay: 50ms; } .adm .kpis section:nth-child(3) { animation-delay: 100ms; } .adm .kpis section:nth-child(4) { animation-delay: 150ms; } .adm .kpis section:nth-child(5) { animation-delay: 200ms; } .adm .kpis section:nth-child(6) { animation-delay: 250ms; }
+.adm .kpis .stat { font-size: 34px; }
+.adm .cards.wide-left { grid-template-columns: minmax(min(460px, 100%), 1.6fr) minmax(min(340px, 100%), 1fr); }
+@media (max-width: 1100px) { .adm .cards.wide-left { grid-template-columns: 1fr; } }
+.adm .chart { height: 140px; display: flex; align-items: flex-end; gap: 4px; padding-top: 8px; }
+.adm .chart i { flex: 1; min-width: 3px; background: var(--ink); border-radius: 3px 3px 0 0; transform-origin: bottom; animation: admgrow 0.6s cubic-bezier(0.2, 0.8, 0.2, 1) backwards; }
+.adm .chart i.recent { background: var(--pink); }
+.adm .hbar { display: grid; grid-template-columns: 120px minmax(0, 1fr) 36px; align-items: center; gap: 10px; min-height: 34px; font-size: 14px; }
+.adm .hbar i { height: 10px; border-radius: 5px; background: #ececf0; display: block; overflow: hidden; }
+.adm .hbar b { display: block; height: 10px; border-radius: 5px; background: var(--ink); transform-origin: left; animation: admgrowx 0.8s cubic-bezier(0.2, 0.8, 0.2, 1) 0.2s backwards; }
+.adm .hbar strong { text-align: right; }
+.adm .tablebox { padding: 0; overflow: hidden; }
+.adm .scrollx { overflow-x: auto; }
+.adm .tbl { width: 100%; border-collapse: collapse; font-size: 14px; }
+.adm .tbl th { text-align: left; font-size: 12px; font-weight: 700; color: #5a5a63; padding: 12px 16px; border-bottom: 1px solid #e2e2e7; white-space: nowrap; }
+.adm .tbl td { padding: 12px 16px; border-bottom: 1px solid #eeeef2; vertical-align: middle; }
+.adm .tbl tbody tr { cursor: default; }
+.adm .tbl tbody tr.on td { background: #f7f7f9; }
+.adm section .tbl th:first-child, .adm section .tbl td:first-child { padding-left: 0; }
+.adm .tablebox .tbl th:first-child, .adm .tablebox .tbl td:first-child { padding-left: 20px; }
+.adm .rowbtn { display: flex; align-items: center; gap: 10px; border: 0; background: none; padding: 0; text-align: left; font: inherit; color: inherit; cursor: pointer; }
+.adm .pigdot { width: 32px; height: 32px; border-radius: 16px; background: #ffe6fe; display: flex; align-items: center; justify-content: center; flex: none; }
+.adm .pager { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; padding: 14px 20px; }
+.adm section > .pager { padding: 12px 0 0; }
+.adm .pager .btn { min-height: 36px; padding: 0 12px; }
+.adm .nowrap { white-space: nowrap; }
+.adm .opt { display: flex; align-items: flex-start; gap: 12px; padding: 12px 14px; border-radius: 12px; border: 1.5px solid #e2e2e7; background: #fff; cursor: pointer; margin-top: 8px; }
+.adm .opt.on { border: 2px solid var(--ink); }
+.adm .opt input { width: 18px; height: 18px; accent-color: var(--ink); margin-top: 2px; }
+.adm .numb { width: 24px; height: 24px; border-radius: 12px; background: var(--ink); color: #fff; font-size: 12px; font-weight: 800; display: inline-flex; align-items: center; justify-content: center; }
+@keyframes admrise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+@keyframes admgrow { from { transform: scaleY(0); } to { transform: scaleY(1); } }
+@keyframes admgrowx { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+@media (max-width: 760px) { .adm aside .navh { padding-top: 6px; } }
+@media (prefers-reduced-motion: reduce) { .adm .kpis section, .adm .chart i, .adm .hbar b { animation: none; } }

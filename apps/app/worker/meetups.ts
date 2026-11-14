@@ -9,6 +9,7 @@ import { type Near, findStart } from './geocode';
 import { later, tellGuests } from './mail';
 import { findPlaces } from './places';
 import { routeWithLadder, routingLadder } from './routing';
+import { mapView } from './crewmap';
 
 // ---------- loading a meetup with everything attached ----------
 export interface Loaded {
@@ -142,6 +143,7 @@ export function hostView(L: Loaded, deps: Deps, unseenChanges: number) {
     myCategories: host.categories as string[],
     myPlace: host.place as string | null,
     hasLocation: host.lat !== null,
+    showOnMap: !!host.show_on_map,
     dates: L.dates.map((d) => ({ id: d.id, startsAt: iso(d.starts_at), votes: s.dateTally.find((t) => t.key === d.id)?.votes ?? 0, names: L.people.filter((p) => p.is_host || p.dates.includes(d.id)).map((p) => p.name) })),
     dateAnswered: s.dateAnswered,
     people: L.people.map((p) => ({
@@ -311,6 +313,23 @@ meetups.post('/:id/location', async (c) => {
     ['update participants set lat = $2, lng = $3 where id = $1', [host.id, at.lat, at.lng]],
     ['delete from place_times where participant_id = $1', [host.id]], // routed from the old start, so no longer true
   ]);
+  return respond(c, L.m.id);
+});
+
+/** The crew map for the host: the same privacy as for guests (see crewmap.ts). */
+meetups.get('/:id/map', async (c) => {
+  const L = await owned(c);
+  const deps = c.get('deps');
+  await strike(deps.db, `map:${await clientKey(c)}`, 60, 10, 5);
+  const host = L.people.find((p) => p.is_host)!;
+  const places = L.m.status === 'confirmed' ? L.places.filter((p) => p.id === L.m.chosen_place) : L.m.status === 'place_vote' ? L.places.filter((p) => p.shortlisted) : L.places;
+  return c.json({ map: await mapView(deps, L, host, places) });
+});
+/** Whether the crew sees the host's exact start and name, or a rough area. */
+meetups.post('/:id/map-visibility', async (c) => {
+  const L = await owned(c);
+  const { show } = await body(c, z.object({ show: z.boolean() }));
+  await c.get('deps').db.query('update participants set show_on_map = $2 where meetup_id = $1 and is_host', [L.m.id, show]);
   return respond(c, L.m.id);
 });
 

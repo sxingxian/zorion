@@ -144,7 +144,7 @@ The Workers' first deploy creates both records (section 2). Keep the orange-clou
 - [ ] Install the PWA on an iPhone (Share → Add to Home Screen) and on an Android phone.
 - [ ] Stripe test mode: buy Pro with card `4242 4242 4242 4242`, check Pro unlocks, cancel in the billing portal, then swap to live keys.
 - [ ] Run `https://securityheaders.com` against both hosts. You should get an A.
-- [ ] Set real group sizes in the admin portal → **Categories & rules**, and Pro prices in Stripe.
+- [ ] Set real group sizes in the admin portal → **Plans**.
 - [ ] Add `CONTACT_EMAIL` to `zorion-site` (Settings → Variables and Secrets, type Text) so the privacy and terms pages show it.
 - [ ] Have the privacy notice and terms (drafts at `/privacy` and `/terms`) reviewed by a lawyer before public launch.
 
@@ -154,11 +154,11 @@ The Workers' first deploy creates both records (section 2). Keep the orange-clou
 
 1. Google Cloud (console.cloud.google.com) → create a project → **APIs & Services → Library** → enable **Places API (New)**, and **Routes API** if you want Google trip times.
 2. **APIs & Services → Credentials → Create credentials → API key**. Edit it: under *API restrictions*, allow only Places API (New) and Routes API. Leave *Application restrictions* at None (Zorion calls Google from its server). Set a budget alert under Billing.
-3. Admin portal → **Categories** → *Places come from* → Google Places. Paste the key in the field that appears and press **Connect**. Zorion checks it with one real search (and one route, to see whether Routes API is on), then asks for your authenticator code.
+3. Admin portal → **Maps** → *Places come from* → Google Places. Paste the key in the field that appears and press **Connect**. Zorion checks it with one real search (and one route, to see whether Routes API is on), then asks for your authenticator code.
 
-**Staying inside the free allowances.** Zorion counts its own calls to every service with a free limit and moves on to the next service before a limit is passed. Google's month runs on Pacific time: 1,000 place searches of each kind (they ask for rating and opening hours), 5,000 starting-place lookups and 10,000 trip-time pairs. By default Zorion stops using a Google service at 90% of its free amount and switches back when the month resets; the Categories page shows this month's use and lets you pick when to switch, or keep using Google and pay. Geoapify (3,000 credits) and openrouteservice (500 route tables) count by the UTC day. Any service that refuses a request (quota, key or billing) is skipped for an hour. Zorion can only count its own calls: if other apps share your Google billing account, pick a lower share, and set a budget alert in Google Cloud either way.
+**Staying inside the free allowances.** Zorion counts its own calls to every service with a free limit and moves on to the next service before a limit is passed. Google's month runs on Pacific time: 1,000 place searches of each kind (they ask for rating and opening hours), 5,000 starting-place lookups and 10,000 trip-time pairs. By default Zorion stops using a Google service at 90% of its free amount and switches back when the month resets; the Maps page shows this month's use and lets you pick when to switch, or keep using Google and pay. Geoapify (3,000 credits) and openrouteservice (500 route tables) count by the UTC day. Any service that refuses a request (quota, key or billing) is skipped for an hour. Zorion can only count its own calls: if other apps share your Google billing account, pick a lower share, and set a budget alert in Google Cloud either way.
 
-**The order Zorion tries.** The admin's choice comes first, then the free services that are connected. A paid service is only used when it is the choice. The Categories page shows the order with what is connected right now.
+**The order Zorion tries.** The admin's choice comes first, then the free services that are connected. A paid service is only used when it is the choice. The Maps page shows the order with what is connected right now.
 
 | | Order |
 | --- | --- |
@@ -175,7 +175,7 @@ If trip times are set to Zorion's estimate, nothing is routed. The app shows whe
 
 The public OpenStreetMap servers allow light use only; connecting Geoapify takes most of that load. You can also point `OVERPASS_URL` and `NOMINATIM_URL` (variables on `zorion-app`) at your own servers.
 
-**Trip times** are Zorion's own estimate by default, and no starting point leaves Zorion. Admin portal → Categories → *Trip times come from* switches to real routes. The free services are listed under *Free services* on the same page; connect as many as you like.
+**Trip times** are Zorion's own estimate by default, and no starting point leaves Zorion. Admin portal → Maps → *Trip times come from* switches to real routes. The free services are listed under *Free services* on the same page; connect as many as you like.
 
 | Service | Cost | Covers | Set-up |
 | --- | --- | --- | --- |
@@ -186,6 +186,21 @@ The public OpenStreetMap servers allow light use only; connecting Geoapify takes
 | Google routes | Paid past the free allowance | Walking, cycling, transit | Uses the Google key above, with **Routes API** turned on. If it was off, turn it on and press **Check again** |
 
 Every routed service receives starting points and places, never names; the privacy page lists them.
+
+## The crew map (3D, free)
+
+Meetup screens show a 3D map of everyone's route to the middle, then to the place once it's set. It's drawn with MapLibre GL (loaded only when a map is on screen) from free tiles that each person's browser loads straight from the service. Nothing to set up; to change the tiles, go to **Admin portal → Maps → Map tiles**:
+
+- **In Singapore**: OneMap (the Singapore Land Authority basemap, with 3D buildings from OpenFreeMap) or OpenFreeMap.
+- **Everywhere else**: OpenFreeMap, VersaTiles or Maptoolkit (Maptoolkit's free plan is meant for small businesses; check it fits).
+- **If tiles fail to load**: the backups, in order. The map switches by itself.
+- **Look**: start in 3D or flat, 3D buildings, animated routes. Reduced motion on the device always stops the animation, and devices without WebGL get a flat drawing.
+
+Route lines come from the same routing services as trip times (OneMap, openrouteservice, Geoapify, OpenStreetMap routing; never Google), or are straight lines when trip times are set to Zorion's estimate. Each person's route is fetched once and kept until their start or the destination changes. The app's Content-Security-Policy (`apps/app/public/_headers`) allows exactly these tile services; add an origin there before adding a new one to `packages/core/src/maptiles.ts`.
+
+## Install as an app
+
+The app is a PWA. Hosts see an **Install** banner on their meetups page (and an **Add to home screen** row under Account). Android and desktop Chrome or Edge use the browser's own install prompt; iPhone and iPad show the three Safari steps, because Safari has no install prompt. The icons are PNGs in `apps/app/public` (192, 512, a maskable 512, and a 180 Apple touch icon), drawn from `icon.svg`.
 
 ## Telegram updates (optional, free)
 

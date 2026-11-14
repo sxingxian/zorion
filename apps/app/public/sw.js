@@ -1,9 +1,9 @@
 // Zorion service worker: keeps the app shell available offline.
 // API responses are never cached, so votes, codes and locations stay off the device.
-const SHELL = 'zorion-shell-v1';
+const SHELL = 'zorion-shell-v2';
 
 self.addEventListener('install', (event) => {
-  event.waitUntil(caches.open(SHELL).then((cache) => cache.addAll(['/', '/icon.svg', '/manifest.webmanifest'])).then(() => self.skipWaiting()));
+  event.waitUntil(caches.open(SHELL).then((cache) => cache.addAll(['/', '/icon.svg', '/icon-192.png', '/manifest.webmanifest'])).then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', (event) => {

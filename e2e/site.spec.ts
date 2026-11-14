@@ -40,7 +40,7 @@ test('a missing page on the site shows Zorion\'s own page', async ({ page }) => 
 test('privacy and terms pages say what the app does', async ({ page }) => {
   await page.goto(`${SITE}/privacy`);
   await expect(page.getByRole('heading', { level: 1, name: 'Privacy' })).toBeVisible();
-  await expect(page.getByText('It is never shown or sent to anyone else in the meetup, including the host.')).toBeVisible();
+  await expect(page.getByText('On the crew map, others see only a rough area', { exact: false })).toBeVisible();
   await expect(page.getByRole('link', { name: "Google's Ads Settings" })).toHaveAttribute('href', 'https://adssettings.google.com/');
   await page.getByRole('navigation', { name: 'Legal' }).getByRole('link', { name: 'Terms' }).click();
   await expect(page.getByRole('heading', { level: 1, name: 'Terms' })).toBeVisible();
@@ -60,7 +60,11 @@ test('admin: password, then authenticator; a setting change lands in the audit l
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Overview' })).toBeVisible();
 
-  await page.getByRole('link', { name: 'Categories', exact: true }).click();
+  // The overview: this week's numbers, services, what needs you, recent activity.
+  await expect(page.getByText('Meetups made per day')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Needs you' })).toBeVisible();
+
+  await page.getByRole('link', { name: 'Maps', exact: true }).click();
   await page.getByLabel('Trip times come from').selectOption('google');
   await expect(page.getByRole('status')).toHaveText('Saved');
   await expect(page.getByLabel('Google key')).toBeVisible(); // the key field appears under the choice that needs it
@@ -69,8 +73,10 @@ test('admin: password, then authenticator; a setting change lands in the audit l
   await expect(page.getByRole('heading', { name: 'Free services' })).toBeVisible();
   await expect(page.getByLabel('OneMap email')).toBeVisible();
   await page.getByLabel('Trip times come from').selectOption('estimate'); // leave the demo as it was
-  await page.getByRole('link', { name: 'Admins', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Map tiles' })).toBeVisible();
+  await page.getByRole('link', { name: 'Activity', exact: true }).click();
   await expect(page.getByText('Changed trip times to Google routes').first()).toBeVisible(); // the log reads in plain words
+  await expect(page.getByText(/^1–\d+ of \d+$/)).toBeVisible(); // paged
 
   // Keys: a missing key is said under the field, and the authenticator code is asked when Connect is pressed.
   await page.getByRole('link', { name: 'Payments', exact: true }).click();
@@ -119,7 +125,7 @@ test('admin: prices and categories set in the portal show up in the app', async 
   await page.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(page.getByText('Hotpot', { exact: true }).first()).toBeVisible();
 
-  await page.getByRole('link', { name: 'Admins', exact: true }).click();
+  await page.getByRole('link', { name: 'Activity', exact: true }).click();
   await expect(page.getByText(/Changed plans · Pro S\$4\.90 a month/).first()).toBeVisible();
   await page.goto(`${SITE}/admin/nope`);
   await expect(page.getByRole('heading', { name: 'Page not found' })).toBeVisible();

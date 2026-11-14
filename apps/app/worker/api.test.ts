@@ -158,6 +158,8 @@ describe('a fixed-date meetup, start to finish', () => {
   });
 
   it('needs the code to change a choice, and pauses the link after three wrong codes', async () => {
+    // Just after joining, changes need no code for 30 minutes (so Back works on every step). Then they do.
+    await (deps.db as any).query("update participants set amend_until = now() - interval '1 minute'");
     expect((await priya('POST', `/api/g/${token}/categories`, { keys: ['bar'] })).body.error).toBe('code_required');
     expect((await priya('POST', `/api/g/${token}/code`, { code: priyaCode })).status).toBe(200);
     expect((await priya('POST', `/api/g/${token}/categories`, { keys: ['pizza'] })).status).toBe(200);

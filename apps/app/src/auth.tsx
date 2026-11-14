@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { api, navigate, useAction, useSession } from './lib';
-import { Btn, Codes, Field, Header, Mascot, Note, Oops, Seg } from './ui';
+import { Actions, Btn, Codes, Field, Header, Mascot, Oops } from './ui';
 
-type Step = 'start' | 'email_code' | 'authenticator' | 'two_step';
+type Step = 'start' | 'email_code' | 'authenticator' | 'two_step' | 'add_password';
 
 /** Host sign-in: email code or password first; if two-step is on, a different proof last. */
 export function SignIn() {
@@ -17,37 +17,60 @@ export function SignIn() {
   const [recovery, setRecovery] = useState('');
   const [run, busy, error, clear] = useAction();
 
-  const after = async (r: { next: string; accepts?: string[] }) => {
+  const after = async (r: { next: string; accepts?: string[]; newAccount?: boolean }) => {
     setCode('');
     if (r.next === 'two_step') {
       setAccepts(r.accepts ?? []);
       setSecond((r.accepts ?? [])[0] === 'email_code' ? 'password' : 'totp');
       setStep('two_step');
+    } else if (r.newAccount) {
+      // A new account came in with a code: offer a password once, so next time either works.
+      setPassword('');
+      setStep('add_password');
     } else {
       await refresh();
       navigate('/', true);
     }
   };
+  const finish = async () => { await refresh(); navigate('/', true); };
   const go = (s: Step) => {
     clear();
     setCode('');
     setStep(s);
   };
 
+  if (step === 'add_password') {
+    return (
+      <main className="screen" style={{ gap: 14, paddingTop: 28 }}>
+        <span className="rise"><Mascot size={72} bob /></span>
+        <h1 className="display h1">Add a password</h1>
+        <p className="small" style={{ fontSize: 15 }}>Optional. You can always use a code.</p>
+        <Field label="Password" type="password" autoComplete="new-password" value={password} onChange={setPassword} />
+        <p className="small">At least 10 characters.</p>
+        <Oops>{error}</Oops>
+        <Actions>
+          <Btn busy={busy} disabled={password.length < 10} onClick={async () => (await run(() => api('POST', '/account/password', { next: password }))) && finish()}>Save</Btn>
+          <Btn kind="second" onClick={finish}>Skip</Btn>
+        </Actions>
+      </main>
+    );
+  }
+
   if (step === 'email_code' || step === 'authenticator') {
     const viaApp = step === 'authenticator';
     return (
       <>
-        <Header title={viaApp ? 'Authenticator code' : 'Check your email'} sub={viaApp ? 'Step 1' : 'Step 2 of 2'} onBack={() => go('start')} />
+        <Header title={viaApp ? 'Authenticator code' : 'Check your email'} onBack={() => go('start')} />
         <main className="screen" style={{ gap: 16 }}>
           <span style={{ alignSelf: 'center' }}><Mascot size={96} bob /></span>
-          <div className="stack"><h2 className="display h1">Enter the 6-digit code</h2><p className="small" style={{ fontSize: 15 }}>{viaApp ? 'From your authenticator app.' : `Sent to ${email}.`}</p></div>
+          <div className="stack"><h2 className="display h1">Enter the code</h2><p className="small" style={{ fontSize: 15 }}>{viaApp ? 'From your authenticator app.' : `Sent to ${email}`}</p></div>
           <Codes length={6} value={code} onChange={setCode} label="6-digit code" />
           <Oops>{error}</Oops>
-          <div className="push stack" style={{ gap: 10 }}>
+          <Actions>
             <Btn busy={busy} disabled={code.length !== 6} onClick={() => run(async () => after(await api('POST', viaApp ? '/auth/authenticator' : '/auth/email-code/verify', { email, code })))}>Sign in</Btn>
             {!viaApp && <Btn kind="second" onClick={() => run(() => api('POST', '/auth/email-code', { email }))}>Send a new code</Btn>}
-          </div>
+            {!viaApp && <Btn kind="second" onClick={() => go('authenticator')}>Use my authenticator</Btn>}
+          </Actions>
         </main>
       </>
     );
@@ -58,48 +81,49 @@ export function SignIn() {
     const ready = second === 'recovery' ? recovery.length >= 8 : second === 'password' ? password.length > 0 : code.length === 6;
     return (
       <>
-        <Header title="Two-step verification" sub="Last step" onBack={() => go('start')} />
+        <Header title="Two-step" onBack={() => go('start')} />
         <main className="screen" style={{ gap: 16 }}>
           {second === 'totp' && <><h2 className="display h1">Authenticator code</h2><Codes length={6} value={code} onChange={setCode} label="Authenticator code" /></>}
           {second === 'recovery' && <><h2 className="display h1">Recovery code</h2><Field label="Recovery code" value={recovery} onChange={setRecovery} autoComplete="off" /></>}
           {second === 'email_code' && <><div className="stack"><h2 className="display h1">Check your email</h2><p className="small" style={{ fontSize: 15 }}>Sent to {email}.</p></div><Codes length={6} value={code} onChange={setCode} label="Emailed code" /></>}
           {second === 'password' && <><h2 className="display h1">Password</h2><Field label="Password" type="password" value={password} onChange={setPassword} autoComplete="current-password" /></>}
           <Oops>{error}</Oops>
-          <div className="push stack" style={{ gap: 10 }}>
+          <Actions>
             <Btn busy={busy} disabled={!ready} onClick={() => run(async () => after(await api('POST', '/auth/two-step', body)))}>Verify</Btn>
             {accepts.includes('recovery') && <Btn kind="second" onClick={() => { clear(); setSecond(second === 'recovery' ? 'totp' : 'recovery'); }}>{second === 'recovery' ? 'Use my authenticator' : 'Use a recovery code'}</Btn>}
             {accepts.includes('email_code') && <Btn kind="second" onClick={() => run(async () => { if (second === 'password') { await api('POST', '/auth/two-step/email-code'); setCode(''); setSecond('email_code'); } else setSecond('password'); })}>{second === 'password' ? 'Email me a code' : 'Use my password'}</Btn>}
-          </div>
+          </Actions>
         </main>
       </>
     );
   }
 
   const valid = /^\S+@\S+\.\S+$/.test(email.trim());
+  const sendCode = () => run(async () => { await api('POST', '/auth/email-code', { email }); go('email_code'); });
   return (
-    <main className="screen" style={{ padding: '20px 20px 24px', gap: 14 }}>
-      <div className="grow stack center" style={{ alignItems: 'center', justifyContent: 'center', gap: 4 }}>
+    <main className="screen signin" style={{ padding: '20px 20px 24px', gap: 14 }}>
+      <div className="grow stack center rise" style={{ alignItems: 'center', justifyContent: 'center', gap: 4, minHeight: 220 }}>
         <Mascot size={110} full bob label="Zorion the black pig" />
         <div className="display" style={{ fontSize: 44 }}>Zorion</div>
         <p style={{ fontWeight: 600, color: 'var(--muted)', fontSize: 15 }}>Good fortune, fair walk.</p>
       </div>
       <h1 className="display h1">Host a meetup</h1>
-      <Seg value={method} onChange={(m) => { clear(); setMethod(m); }} options={[{ value: 'code', label: 'Email code' }, { value: 'password', label: 'Password' }]} />
-      <Field label="Email" type="email" inputMode="email" autoComplete="email" placeholder="you@example.com" value={email} onChange={setEmail} />
-      {method === 'password' && <Field label="Password" type="password" autoComplete="current-password" value={password} onChange={setPassword} />}
-      <Oops>{error}</Oops>
-      {method === 'code' ? (
-        <>
-          <Btn busy={busy} disabled={!valid} onClick={() => run(async () => { await api('POST', '/auth/email-code', { email }); go('email_code'); })}>Email me a code</Btn>
-          <Btn kind="text" disabled={!valid} onClick={() => go('authenticator')}>Use my authenticator</Btn>
-          <p className="small center">New? This creates your account.</p>
-        </>
-      ) : (
-        <>
-          <Btn busy={busy} disabled={!valid || !password} onClick={() => run(async () => after(await api('POST', '/auth/password', { email, password })))}>Sign in</Btn>
-        </>
-      )}
-      <p className="small center">Got a meetup link? Just open it. No account needed.</p>
+      <form className="stack" style={{ gap: 14 }} onSubmit={(e) => { e.preventDefault(); if (!valid || busy) return; if (method === 'code') sendCode(); else if (password) run(async () => after(await api('POST', '/auth/password', { email, password }))); }}>
+        <Field label="Email" type="email" inputMode="email" autoComplete="email" placeholder="you@example.com" value={email} onChange={setEmail} />
+        {method === 'password' && <Field label="Password" type="password" autoComplete="current-password" value={password} onChange={setPassword} />}
+        <Oops>{error}</Oops>
+        {method === 'code' ? (
+          <>
+            <Btn type="submit" busy={busy} disabled={!valid}>Continue</Btn>
+            <Btn kind="second" onClick={() => { clear(); setMethod('password'); }}>Use password</Btn>
+          </>
+        ) : (
+          <>
+            <Btn type="submit" busy={busy} disabled={!valid || !password}>Sign in</Btn>
+            <Btn kind="second" disabled={!valid} onClick={() => { clear(); setMethod('code'); sendCode(); }}>Email me a code</Btn>
+          </>
+        )}
+      </form>
       <p className="small center"><a href="/api/legal/terms" target="_blank" rel="noopener">Terms</a> · <a href="/api/legal/privacy" target="_blank" rel="noopener">Privacy</a></p>
     </main>
   );

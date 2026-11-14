@@ -1,9 +1,11 @@
 import { Hono } from 'hono';
 import { deleteCookie, getCookie } from 'hono/cookie';
 import { z } from 'zod';
-import { OWN_ICONS, cleanName } from '@zorion/core';
+import { OWN_ICONS, SG_TILE_CHOICES, type TileSourceKey, WORLD_TILE_CHOICES, cleanName } from '@zorion/core';
 import { type Db, type Row, neonDb, one } from '@zorion/db';
 import { hashPassword, hmac, newTotpSecret, otpauthUri, randomToken, safeEqual, seal, sha256, unseal, verifyPassword, verifyTotp } from '@zorion/server/crypto';
+import { settingsStatus } from '@zorion/server/settings';
+import { usageReport } from '@zorion/server/usage';
 import { type App, type C, type Deps, type Env, Fail, IDLE_MINUTES, audit, body, cookie, lockKey, locked, mask, need, secure, session, strike, uuid } from './core';
 import { config, plans } from './config';
 
@@ -208,14 +210,60 @@ setTimeout(function () { if (ins.getAttribute('data-ad-status') !== 'filled') te
 
   api.get('/overview', async (c) => {
     need(c);
-    const { db } = c.get('deps');
-    const [users, meetups, pending, provider] = await Promise.all([
-      db.query("select count(*)::int as hosts, count(*) filter (where plan = 'pro')::int as pro, count(*) filter (where status = 'suspended')::int as suspended from users"),
+    const { db, env } = c.get('deps');
+    const days = c.req.query('days') === '30' ? 30 : 7;
+    const [users, stages, pending, period, perDay, statuses, recent] = await Promise.all([
+      db.query(`select count(*)::int as hosts, count(*) filter (where plan = 'pro')::int as pro, count(*) filter (where status = 'suspended')::int as suspended,
+                  count(*) filter (where created_at > now() - make_interval(days => $1))::int as new_hosts from users`, [days]),
       db.query('select status, count(*)::int as n from meetups group by status'),
       db.query("select count(*)::int as n from approvals where status = 'pending'"),
-      db.query("select value from settings where key = 'places_provider'"),
+      db.query(`select
+          (select count(*)::int from meetups where created_at > now() - make_interval(days => $1)) as made,
+          (select count(*)::int from meetups where created_at > now() - make_interval(days => $1 * 2) and created_at <= now() - make_interval(days => $1)) as made_before,
+          (select count(*)::int from meetups where created_at > now() - make_interval(days => $1) and status in ('confirmed', 'ended') and chosen_place is not null) as confirmed,
+          (select count(*)::int from participants where not is_host and created_at > now() - make_interval(days => $1)) as guests`, [days]),
+      db.query(`select to_char(d, 'YYYY-MM-DD') as day, (select count(*)::int from meetups m where m.created_at >= d and m.created_at < d + interval '1 day') as n
+                from generate_series(date_trunc('day', now()) - interval '29 days', date_trunc('day', now()), interval '1 day') d order by d`),
+      db.query("select key, value from settings where key in ('email_status', 'maps_status')"),
+      db.query('select l.id, l.action, l.target, l.detail, l.created_at, a.email from audit_log l left join admins a on a.id = l.admin_id order by l.created_at desc limit 5'),
     ]);
-    return c.json({ users: users[0], meetups: Object.fromEntries(meetups.map((r) => [r.status, r.n])), pendingApprovals: pending[0]!.n, placesProvider: provider[0]?.value ?? 'osm' });
+    const st = await settingsStatus(db, env as unknown as Record<string, unknown>);
+    const saved = Object.fromEntries(statuses.map((r) => [String(r.key), r.value]));
+    return c.json({
+      days,
+      users: users[0], period: period[0], perDay,
+      meetups: Object.fromEntries(stages.map((r) => [r.status, r.n])),
+      pendingApprovals: pending[0]!.n,
+      services: {
+        stripe: st.STRIPE_SECRET_KEY.set, stripeWebhook: st.STRIPE_WEBHOOK_SECRET.set,
+        email: st.RESEND_API_KEY.set, emailLast: saved.email_status ?? null,
+        telegram: st.TELEGRAM_BOT_TOKEN.set,
+        google: st.GOOGLE_PLACES_KEY.set, geoapify: st.GEOAPIFY_KEY.set, onemap: st.ONEMAP_EMAIL.set && st.ONEMAP_PASSWORD.set, ors: st.ORS_API_KEY.set,
+        maps: saved.maps_status ?? {},
+      },
+      usage: await usageReport(db, c.get('deps').now()),
+      recent,
+    });
+  });
+
+  // ----- activity: the audit log, paged -----
+  const KINDS: Record<string, string[]> = {
+    settings: ['setting.%', 'category.%'], keys: ['stripe.%', 'maps.%', 'telegram.%', 'email.%'], plans: ['plans.%'],
+    users: ['user.%', 'suspend%', 'delete%'], admins: ['admin.%', 'setup.%'], signin: ['sign_in%'],
+  };
+  api.get('/activity', async (c) => {
+    need(c);
+    const page = Math.max(1, Math.min(10_000, Number(c.req.query('page')) || 1));
+    const kind = c.req.query('kind') ?? '';
+    const q = (c.req.query('q') ?? '').trim().toLowerCase().slice(0, 80);
+    const pats = KINDS[kind] ?? null;
+    const where = `where ($1::text[] is null or l.action like any($1)) and ($2 = '' or lower(coalesce(a.email, '')) like '%' || $2 || '%' or lower(l.action) like '%' || $2 || '%' or lower(coalesce(l.target, '')) like '%' || $2 || '%')`;
+    const { db } = c.get('deps');
+    const [rows, total] = await Promise.all([
+      db.query(`select l.id, l.action, l.target, l.detail, l.created_at, a.email from audit_log l left join admins a on a.id = l.admin_id ${where} order by l.created_at desc limit 25 offset $3`, [pats, q, (page - 1) * 25]),
+      db.query(`select count(*)::int as n from audit_log l left join admins a on a.id = l.admin_id ${where}`, [pats, q]),
+    ]);
+    return c.json({ rows, total: total[0]!.n, page, pageSize: 25 });
   });
 
   // ----- categories and rules -----
@@ -246,6 +294,10 @@ setTimeout(function () { if (ins.getAttribute('data-ad-status') !== 'filled') te
     const input = await body(c, z.object({
       places_provider: z.enum(['osm', 'geoapify', 'google']).optional(), routing_provider: z.enum(['estimate', 'osrm', 'ors', 'geoapify', 'onemap', 'google']).optional(), google_budget: z.enum(['50', '75', '90', '100', 'paid']).optional(), own_categories: z.boolean().optional(), blocked_words: z.array(z.string().trim().min(2).max(24)).max(200).optional(),
       group_size: z.object({ free: z.number().int().min(2).max(100), pro: z.number().int().min(2).max(200) }).optional(),
+      map_tiles_sg: z.enum(SG_TILE_CHOICES as [TileSourceKey, ...TileSourceKey[]]).optional(),
+      map_tiles_world: z.enum(WORLD_TILE_CHOICES as [TileSourceKey, ...TileSourceKey[]]).optional(),
+      map_tiles_backup: z.array(z.enum(WORLD_TILE_CHOICES as [TileSourceKey, ...TileSourceKey[]])).max(3).optional(),
+      map_start_3d: z.boolean().optional(), map_buildings: z.boolean().optional(), map_animate: z.boolean().optional(),
     }));
     const { db } = c.get('deps');
     for (const [key, value] of Object.entries(input)) {
@@ -272,13 +324,16 @@ setTimeout(function () { if (ins.getAttribute('data-ad-status') !== 'filled') te
     const admin = need(c);
     const q = (c.req.query('q') ?? '').trim().toLowerCase().slice(0, 80);
     const plan = c.req.query('plan');
-    const rows = await c.get('deps').db.query(
-      `select u.id, u.email, u.plan, u.status, u.totp_enabled, u.created_at, u.last_sign_in_at, (select count(*)::int from meetups m where m.host_id = u.id) as meetups
-       from users u where ($1 = '' or u.email like '%' || $1 || '%') and ($2::text is null or ($2 = 'suspended' and u.status = 'suspended') or u.plan = $2)
-       order by u.created_at desc limit 100`,
-      [q, plan && ['free', 'pro', 'suspended'].includes(plan) ? plan : null],
-    );
-    return c.json({ users: rows.map((r) => ({ ...r, email: admin.role === 'super' ? r.email : mask(r.email) })) });
+    const page = Math.max(1, Math.min(10_000, Number(c.req.query('page')) || 1));
+    const where = `where ($1 = '' or u.email like '%' || $1 || '%' or lower(u.display_name) like '%' || $1 || '%') and ($2::text is null or ($2 = 'suspended' and u.status = 'suspended') or u.plan = $2)`;
+    const args = [q, plan && ['free', 'pro', 'suspended'].includes(plan) ? plan : null];
+    const { db } = c.get('deps');
+    const [rows, total] = await Promise.all([
+      db.query(`select u.id, u.email, u.display_name, u.avatar, u.plan, u.status, u.totp_enabled, u.created_at, u.last_sign_in_at, (select count(*)::int from meetups m where m.host_id = u.id) as meetups
+                from users u ${where} order by u.created_at desc limit 25 offset $3`, [...args, (page - 1) * 25]),
+      db.query(`select count(*)::int as n from users u ${where}`, args),
+    ]);
+    return c.json({ users: rows.map((r) => ({ ...r, email: admin.role === 'super' ? r.email : mask(r.email) })), total: total[0]!.n, page, pageSize: 25 });
   });
 
   // ----- approvals: propose, then a different admin approves -----

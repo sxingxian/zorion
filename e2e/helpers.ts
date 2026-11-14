@@ -6,12 +6,12 @@ export const SITE = 'http://localhost:5174';
 
 /** Clicks the button whose whole label is exactly this text. */
 export async function press(page: Page, name: string): Promise<void> {
-  await page.getByRole('button', { name, exact: true }).first().click();
+  await page.getByRole('button', { name, exact: true }).locator('visible=true').first().click();
 }
 
 /** Clicks the first button or link that contains the text. */
 export async function tap(page: Page, text: string | RegExp): Promise<void> {
-  await page.locator('button, a, [role=button]').filter({ hasText: text }).first().click();
+  await page.locator('button:visible, a:visible, [role=button]:visible, [role=radio]:visible').filter({ hasText: text }).first().click();
 }
 
 /** Types into the boxed code inputs (sign-in codes, guest codes). */
@@ -30,11 +30,15 @@ export async function emailedCode(page: Page, email: string): Promise<string> {
 export async function signIn(page: Page, email: string): Promise<void> {
   await page.goto(APP);
   await page.locator('input[type=email]').fill(email);
-  await tap(page, 'Email me a code');
+  await press(page, 'Continue');
   await expect(page.getByRole('button', { name: 'Sign in', exact: true })).toBeVisible();
   await typeCode(page, await emailedCode(page, email));
   await press(page, 'Sign in');
-  await expect(page.getByText('Your meetups')).toBeVisible();
+  // A new account is offered a password once.
+  const skip = page.getByRole('button', { name: 'Skip', exact: true });
+  await expect(skip.or(page.getByRole('heading', { name: 'Meetups' }))).toBeVisible();
+  if (await skip.isVisible()) await skip.click();
+  await expect(page.getByRole('heading', { name: 'Meetups' })).toBeVisible();
 }
 
 /** Creates a fixed-date meetup, votes as host and shares it. Returns the guest link. */
@@ -46,10 +50,10 @@ export async function hostMeetup(page: Page, invitees: string[]): Promise<string
     await page.getByPlaceholder('Add a name').fill(name);
     await press(page, 'Add');
   }
-  await press(page, 'Next');
+  await press(page, 'Create');
   await tap(page, 'Pizza');
   await tap(page, 'Ramen');
-  await tap(page, 'Vote, then share the link');
+  await press(page, 'Vote');
   await press(page, 'Share');
   await expect(page.getByText('Copy link')).toBeVisible();
   const text = await page.locator('body').innerText();
@@ -62,7 +66,7 @@ export async function joinAs(browser: Browser, link: string, name: string, at = 
   const page = await ctx.newPage();
   await page.goto(link);
   await tap(page, name);
-  await tap(page, `I am ${name}`);
+  await tap(page, `I'm ${name}`);
   await expect(page.getByText('Keep this code')).toBeVisible();
   const code = (await page.locator('input').evaluateAll((els) => els.map((e) => (e as HTMLInputElement).value))).join('');
   await press(page, 'Continue');

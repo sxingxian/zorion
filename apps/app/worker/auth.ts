@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
-import { LIMITS, cleanName } from '@zorion/core';
+import { AVATARS, LIMITS, PRO_AVATARS, cleanName } from '@zorion/core';
 import * as schemas from '@zorion/core/schemas';
 import { one } from '@zorion/db';
 import { connectLink, telegramReady } from './telegram';
@@ -47,20 +47,23 @@ async function findUser(c: C, email: string) {
 }
 
 /** After a correct first step: either a full session, or a short pending one that waits for the second step. */
-async function afterFirstStep(c: C, user: { id: string; totp_enabled: boolean; status: string }, first: 'email' | 'password' | 'totp') {
+async function afterFirstStep(c: C, user: { id: string; totp_enabled: boolean; status: string }, first: 'email' | 'password' | 'totp', newAccount = false) {
   if (user.status !== 'active') throw new Fail(403, 'suspended', 'This account is suspended.');
   if (!user.totp_enabled) {
     await startSession(c, user.id, 'full');
-    return c.json({ next: 'done' });
+    return c.json({ next: 'done', ...(newAccount ? { newAccount: true } : {}) });
   }
   await startSession(c, user.id, 'pending_2fa', first);
   return c.json({ next: 'two_step', accepts: first === 'totp' ? ['email_code', 'password'] : ['totp', 'recovery'] });
 }
 
-const failSignIn = async (c: C, key: string): Promise<never> => {
+const failSignIn = async (c: C, key: string, wrong = "That didn't match."): Promise<never> => {
   const locked = await strike(c.get('deps').db, key, LIMITS.emailCodeTries, 15, LIMITS.signInLockMinutes);
-  throw new Fail(locked ? 429 : 401, locked ? 'locked' : 'wrong', locked ? 'Too many wrong tries. Try again in 15 minutes.' : "That didn't match.");
+  throw new Fail(locked ? 429 : 401, locked ? 'locked' : 'wrong', locked ? 'Too many wrong tries. Try again in 15 minutes.' : wrong);
 };
+// The same words whether the password was wrong, the account has none yet, or there's no account,
+// so the answer never tells anyone which emails have accounts.
+const NO_PASSWORD_MATCH = 'Wrong password, or no password set yet. Sign in with a code instead.';
 
 auth.post('/email-code', async (c) => {
   const { email } = await body(c, z.object({ email: schemas.email }));
@@ -76,11 +79,13 @@ auth.post('/email-code/verify', async (c) => {
   if (!(await checkEmailCode(c, email, code))) return failSignIn(c, key);
   await clearStrikes(db, key);
   let user = await findUser(c, email);
+  let created = false;
   if (!user) {
+    created = true;
     const name = cleanName(email.split('@')[0]!.replace(/[._-]+/g, ' ').replace(/^\w/, (m) => m.toUpperCase()), LIMITS.inviteeName) ?? 'Host';
     user = (await db.query('insert into users (email, display_name) values ($1, $2) returning *', [email, name]))[0]!;
   }
-  return afterFirstStep(c, user as any, 'email');
+  return afterFirstStep(c, user as any, 'email', created);
 });
 
 auth.post('/password', async (c) => {
@@ -89,7 +94,7 @@ auth.post('/password', async (c) => {
   const key = await emailKey(c, email);
   await guardLock(db, key);
   const user = await findUser(c, email);
-  if (!(await verifyPassword(password, user?.password_hash ?? null, env.PEPPER)) || !user) return failSignIn(c, key);
+  if (!(await verifyPassword(password, user?.password_hash ?? null, env.PEPPER)) || !user) return failSignIn(c, key, NO_PASSWORD_MATCH);
   await clearStrikes(db, key);
   return afterFirstStep(c, user as any, 'password');
 });
@@ -165,12 +170,13 @@ export const account = new Hono<App>();
 
 account.patch('/', async (c) => {
   const user = requireUser(c);
-  const input = await body(c, z.object({ theme: z.enum(['gold', 'pink']).optional(), displayName: z.string().max(40).optional(), notify: z.boolean().optional() }));
+  const input = await body(c, z.object({ theme: z.enum(['gold', 'pink']).optional(), displayName: z.string().max(40).optional(), notify: z.boolean().optional(), avatar: z.enum(AVATARS).optional() }));
   if (input.theme === 'gold' && !(await features(c.get('deps').db, user.plan)).goldTheme) throw upgrade('The gold theme comes with Pro.');
+  if (input.avatar && PRO_AVATARS.includes(input.avatar) && !(await features(c.get('deps').db, user.plan)).goldTheme) throw upgrade('Star shades come with Pro.');
   const name = input.displayName === undefined ? undefined : cleanName(input.displayName, LIMITS.inviteeName);
   if (input.displayName !== undefined && !name) throw new Fail(422, 'invalid', 'Enter a name.');
-  const row = await one(c.get('deps').db, `update users u set theme = coalesce($2, theme), display_name = coalesce($3, display_name), notify = coalesce($4, notify) where id = $1
-     returning u.id, u.email, u.display_name, u.plan, u.theme, u.status, u.totp_enabled, (u.password_hash is not null) as has_password, u.notify, (u.telegram_chat_id is not null) as telegram`, [user.id, input.theme ?? null, name ?? null, input.notify ?? null]);
+  const row = await one(c.get('deps').db, `update users u set theme = coalesce($2, theme), display_name = coalesce($3, display_name), notify = coalesce($4, notify), avatar = coalesce($5, avatar) where id = $1
+     returning u.id, u.email, u.display_name, u.plan, u.theme, u.status, u.totp_enabled, (u.password_hash is not null) as has_password, u.notify, (u.telegram_chat_id is not null) as telegram, u.avatar`, [user.id, input.theme ?? null, name ?? null, input.notify ?? null, input.avatar ?? null]);
   return c.json({ user: toUser(row!) });
 });
 
