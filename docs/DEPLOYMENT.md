@@ -5,7 +5,7 @@ Everything runs on free tiers at launch: **Neon** (Postgres) in Singapore, and *
 | Host | Serves | Cloudflare Worker | Code |
 | --- | --- | --- | --- |
 | `zorion.midnightpoetry.studio` | Website, plus the admin portal at `/admin` | `zorion-site` | `apps/site` |
-| `zorionapp.midnightpoetry.studio` | PWA, its API, the Stripe and Telegram webhooks, the hourly clean-up | `zorion-app` | `apps/app` |
+| `zorionapp.midnightpoetry.studio` | PWA, its API, the Stripe and Telegram webhooks, the hourly housekeeping | `zorion-app` | `apps/app` |
 
 Both Workers use the same database and the same `PEPPER` and `TOTP_KEY`.
 
@@ -52,9 +52,11 @@ The first deploy creates every table, but the app and admin portal answer with e
 
 Each `wrangler.jsonc` claims its domain as a Worker custom domain, so the first deploy creates the DNS record and certificate, provided `midnightpoetry.studio` is a zone in the same Cloudflare account. If the domain is attached to another Worker or Pages project, remove it there first. Neither Worker answers on `*.workers.dev`.
 
-### Hourly job
+### Hourly housekeeping (no cron trigger)
 
-`zorion-app` runs at 17 minutes past every hour (`triggers.crons`). It erases starting points, guest emails and guest Telegram chats of meetups that have ended, deletes old meetups and expired codes, and connects the Telegram bot if it's set up. Check it in Cloudflare → `zorion-app` → Settings → Trigger events.
+Zorion uses no Cloudflare cron triggers. Instead, `zorion-app` does its housekeeping in the background after an ordinary request, at most once an hour: a row in the database records when it last ran, and only one request per hour wins it. It erases starting points, guest emails and guest Telegram chats of meetups that have ended, deletes old meetups and expired codes, and connects the Telegram bot if it's set up. Nothing to set up.
+
+It needs traffic to run. If nobody uses the app for a while, that data waits until the next visit. Within a few minutes of that visit it is erased. To keep the hour strict even when the app is quiet, point a free uptime monitor at `https://zorionapp.midnightpoetry.studio/api/health` every 15 to 30 minutes.
 
 ## 3. Secrets for both Workers
 
@@ -167,7 +169,7 @@ Hosts (Account → Telegram) and guests (meetup page → Get updates → On Tele
 
 1. In Telegram, message **@BotFather**, send `/newbot`, choose a name (e.g. "Zorion") and a username ending in `bot` (e.g. `ZorionMeetBot`). Copy the token.
 2. Cloudflare → `zorion-app` → Settings → Variables and Secrets → add, as **Secret**: `TELEGRAM_BOT_TOKEN` (the token) and `TELEGRAM_BOT_USERNAME` (the username, without @). `TELEGRAM_WEBHOOK_SECRET` too, if you didn't add it in section 3 (40+ random letters and numbers).
-3. Wait for the next hourly job: the app points the bot at `https://zorionapp.midnightpoetry.studio/api/webhooks/telegram` by itself, and does it again if the address or secret changes. To connect at once from a computer: `TELEGRAM_BOT_TOKEN=… TELEGRAM_WEBHOOK_SECRET=… APP_ORIGIN=https://zorionapp.midnightpoetry.studio npm run telegram:setup`.
+3. Wait up to an hour after the app's next request: it points the bot at `https://zorionapp.midnightpoetry.studio/api/webhooks/telegram` by itself, and does it again if the address or secret changes. To connect at once from a computer: `TELEGRAM_BOT_TOKEN=… TELEGRAM_WEBHOOK_SECRET=… APP_ORIGIN=https://zorionapp.midnightpoetry.studio npm run telegram:setup`.
 
 Until `TELEGRAM_BOT_USERNAME` is set, the Telegram choice doesn't appear anywhere. A bot can only message people who pressed Start in a chat with it, so people connect through a one-time link that opens the bot. Sending `/stop` to the bot, or blocking it, disconnects them. Sign-in codes are never sent on Telegram.
 

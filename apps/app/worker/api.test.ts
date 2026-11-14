@@ -2,7 +2,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { testDb } from '@zorion/db/testing';
 import type { Deps, Env } from './core';
 import { totpAt, totpStep } from './crypto';
-import { cleanUp, verifyStripeSignature } from './extras';
+import { cleanUp, maintain, verifyStripeSignature } from './extras';
 import { createApp } from './index';
 import { hmac } from './crypto';
 
@@ -334,6 +334,23 @@ describe('housekeeping', () => {
     await cleanUp(db);
     expect((await db.query('select status from meetups where id = $1', [mid]))[0]!.status).toBe('ended');
     expect((await db.query('select count(*)::int as n from participants where meetup_id = $1 and lat is not null', [mid]))[0]!.n).toBe(0);
+  });
+
+  it('runs housekeeping at most once an hour, without a scheduler', async () => {
+    const db = deps.db!;
+    const d = deps as Deps;
+    await db.query("delete from throttles where key = 'maintenance'");
+    expect(await maintain(d)).toBe(true);
+    expect(await maintain(d)).toBe(false);
+    await db.query("update throttles set window_start = now() - interval '61 minutes' where key = 'maintenance'");
+    expect(await maintain(d)).toBe(true);
+    expect(await maintain(d)).toBe(false);
+  });
+
+  it('answers a health check', async () => {
+    const res = await app.request('/api/health');
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true });
   });
 
   it('sends legal links to the landing site', async () => {

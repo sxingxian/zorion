@@ -1,8 +1,9 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
-import type { Db } from '@zorion/db';
+import { type Db, one } from '@zorion/db';
 import { type App, type Deps, Fail, body, requireUser } from './core';
 import { hmac, safeEqual } from './crypto';
+import { ensureTelegramWebhook } from './telegram';
 
 // ---------- Stripe (hosted Checkout and customer portal; card details never reach Zorion) ----------
 async function stripe(deps: Deps, path: string, form: Record<string, string>): Promise<any> {
@@ -110,7 +111,7 @@ ads.get('/:placement', async (c) => {
   return c.json({ ad: row ? { name: row.name, url: row.url && /^https:\/\//.test(row.url) ? row.url : null } : null });
 });
 
-// ---------- scheduled clean-up ----------
+// ---------- clean-up ----------
 /** Ends old meetups, deletes their locations, and clears expired sessions, codes and locks. */
 export async function cleanUp(db: Db): Promise<void> {
   await db.batch([
@@ -127,4 +128,19 @@ export async function cleanUp(db: Db): Promise<void> {
     ["delete from throttles where coalesce(locked_until, window_start) < now() - interval '1 day'", []],
     ["delete from stripe_events where received_at < now() - interval '30 days'", []],
   ]);
+}
+
+/**
+ * Housekeeping without a scheduler: the app runs it after an ordinary request, at most once an hour across all
+ * Workers. A row in throttles is the shared clock; only the request that moves it forward does the work.
+ * Returns true when this call ran the clean-up.
+ */
+export async function maintain(deps: Deps): Promise<boolean> {
+  const won = await one(deps.db, `insert into throttles (key, count, window_start) values ('maintenance', 0, now())
+    on conflict (key) do update set window_start = now() where throttles.window_start < now() - interval '60 minutes' returning key`);
+  if (!won) return false;
+  await cleanUp(deps.db);
+  // Connects the Telegram bot by itself once its secrets are set.
+  await ensureTelegramWebhook(deps).catch((err) => console.error('telegram webhook', err instanceof Error ? err.message : err));
+  return true;
 }

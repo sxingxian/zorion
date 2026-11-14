@@ -9,7 +9,6 @@
     "run_worker_first": ["/api/*"]
   },
   "routes": [{ "pattern": "zorionapp.midnightpoetry.studio", "custom_domain": true }],
-  "triggers": { "crons": ["17 * * * *"] },
   "observability": { "enabled": true },
   // Serve only the custom domain: no *.workers.dev address and no preview addresses.
   "workers_dev": false,
@@ -28,6 +27,6 @@
   }
   // Secrets (set with `wrangler secret put`): DATABASE_URL, PEPPER, TOTP_KEY, RESEND_API_KEY, EMAIL_FROM,
   // GOOGLE_PLACES_KEY, STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, STRIPE_PRICE_MONTHLY, STRIPE_PRICE_YEARLY
-  // Optional: TELEGRAM_BOT_TOKEN, TELEGRAM_BOT_USERNAME and TELEGRAM_WEBHOOK_SECRET (updates on Telegram; the hourly job connects the bot),
+  // Optional: TELEGRAM_BOT_TOKEN, TELEGRAM_BOT_USERNAME and TELEGRAM_WEBHOOK_SECRET (updates on Telegram; the app connects the bot by itself),
   // ORS_API_KEY (openrouteservice, free plan), GOOGLE_ROUTES_KEY (falls back to GOOGLE_PLACES_KEY), OVERPASS_URL and NOMINATIM_URL (your own map servers)
 }
