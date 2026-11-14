@@ -140,7 +140,7 @@ export function Landing() {
       <section className="hero" ref={hero}>
         <City>{HERO_CREW.map(([x, y, l]) => <Pin key={l} x={x} y={y} letter={l} />)}</City>
         <div className="stage" ref={stage} />
-        <div className="anchor" ref={anchor}><div className="lift"><div className="walker bob"><Pig size={220} label="Zorion the black pig in a pink chef hat" /></div></div></div>
+        <div className="anchor" ref={anchor}><div className="lift"><div className="walker bob"><Pig size={220} label="Zorion the black pig in a chef hat" /></div></div></div>
         <div className="wrap" style={{ width: '100%' }}>
           <div className="card">
             <h1 className="display">Good fortune, fair walk.</h1>

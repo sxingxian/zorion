@@ -6,7 +6,7 @@ const svg = (inner: string, viewBox: string, size: number, ratio = 1, label?: st
   <svg viewBox={viewBox} width={size} height={Math.round(size * ratio)} style={{ flex: 'none' }} role={label ? 'img' : undefined} aria-label={label} aria-hidden={label ? undefined : true} dangerouslySetInnerHTML={{ __html: inner }} />
 );
 
-/** Zorion the black pig. Chef hat on the pink theme, star shades on gold. A light rim keeps him visible on dark. */
+/** Zorion the black pig. Chef hat on the pink theme, star shades on gold. A light rim keeps him visible on dark. Drawn by scripts/mascot.mjs. */
 export function Mascot({ size = 64, full = false, bob = false, label }: { size?: number; full?: boolean; bob?: boolean; label?: string }) {
   const { theme, mode } = useContext(Look);
   const star = theme === 'gold';
