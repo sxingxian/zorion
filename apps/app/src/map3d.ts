@@ -1,15 +1,13 @@
 // The 3D map engine, loaded only when a map is on screen. MapLibre GL draws the tiles; the tiles come
 // straight from the free service the admin chose (OneMap in Singapore, OpenFreeMap and others elsewhere).
-// The CSP build runs its worker from our own origin, so no blob: workers are needed.
-import maplibreCsp from 'maplibre-gl/dist/maplibre-gl-csp.js';
-import workerUrl from 'maplibre-gl/dist/maplibre-gl-csp-worker.js?url';
+// The worker runs from our own origin (worker-src 'self'), so no blob: workers are needed.
+import * as maplibregl from 'maplibre-gl';
+import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?url';
 import 'maplibre-gl/dist/maplibre-gl.css';
-import type * as ML from 'maplibre-gl';
 import type { Feature, FeatureCollection } from 'geojson';
 import { ART, BUILDINGS_TILEJSON, type MapSettings, TILE_SOURCES, type TileSourceKey } from '@zorion/core';
 import type { MapData } from './meetupmap';
 
-const maplibregl = maplibreCsp as unknown as typeof ML;
 maplibregl.setWorkerUrl(workerUrl);
 
 const DASHES: number[][] = [[0, 4, 3], [0.5, 4, 2.5], [1, 4, 2], [1.5, 4, 1.5], [2, 4, 1], [2.5, 4, 0.5], [3, 4, 0], [0, 0.5, 3, 3.5], [0, 1, 3, 3], [0, 1.5, 3, 2.5], [0, 2, 3, 2], [0, 2.5, 3, 1.5], [0, 3, 3, 1], [0, 3.5, 3, 0.5]];
@@ -31,7 +29,7 @@ function tileOrder(data: MapData, s: MapSettings): TileSourceKey[] {
   return [...new Set([first, ...s.backup].filter((k) => !TILE_SOURCES[k].singaporeOnly || data.singapore))];
 }
 
-function styleFor(key: TileSourceKey, buildings: boolean): ML.StyleSpecification | string {
+function styleFor(key: TileSourceKey, buildings: boolean): maplibregl.StyleSpecification | string {
   const src = TILE_SOURCES[key];
   if (src.raster) {
     return {
@@ -45,7 +43,7 @@ function styleFor(key: TileSourceKey, buildings: boolean): ML.StyleSpecification
         ...(buildings ? [{
           id: 'z-buildings', type: 'fill-extrusion', source: 'ofm', 'source-layer': 'building', minzoom: 14,
           paint: { 'fill-extrusion-color': '#e4e4ea', 'fill-extrusion-height': ['coalesce', ['get', 'render_height'], 8], 'fill-extrusion-base': ['coalesce', ['get', 'render_min_height'], 0], 'fill-extrusion-opacity': 0.85 },
-        } as ML.LayerSpecification] : []),
+        } as maplibregl.LayerSpecification] : []),
       ],
     };
   }
@@ -59,7 +57,7 @@ export function createMap(container: HTMLElement, first: MapData, settings: MapS
   let errors = 0;
   let three = settings.start3d;
   const animate = settings.animate && !reduced();
-  const markers: ML.Marker[] = [];
+  const markers: maplibregl.Marker[] = [];
 
   const map = new maplibregl.Map({
     container,
@@ -100,13 +98,11 @@ export function createMap(container: HTMLElement, first: MapData, settings: MapS
     map.addLayer({ id: 'routes-case', type: 'line', source: 'routes', layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': '#ffffff', 'line-width': ['match', ['get', 'kind'], 'you', 10, 8] } });
     map.addLayer({ id: 'routes-base', type: 'line', source: 'routes', layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': ['match', ['get', 'kind'], 'rough', '#6b6b74', '#0b0b0d'], 'line-opacity': 0.25, 'line-width': ['match', ['get', 'kind'], 'you', 6, 4] } });
     map.addLayer({ id: 'routes-dash', type: 'line', source: 'routes', layout: { 'line-join': 'round' }, paint: { 'line-color': ['match', ['get', 'kind'], 'rough', '#6b6b74', '#0b0b0d'], 'line-width': ['match', ['get', 'kind'], 'you', 6, 4], 'line-dasharray': DASHES[0]! } });
-    map.addSource('dots', { type: 'geojson', data: fc([]) });
-    map.addLayer({ id: 'dots', type: 'circle', source: 'dots', paint: { 'circle-radius': ['match', ['get', 'kind'], 'you', 7, 5.5], 'circle-color': ['match', ['get', 'kind'], 'you', '#ffa6fc', '#ffffff'], 'circle-stroke-color': '#0b0b0d', 'circle-stroke-width': 2.5 } });
   }
 
   function placeMarkers() {
     markers.splice(0).forEach((m) => m.remove());
-    const add = (html: string, lng: number, lat: number, anchor: ML.PositionAnchor = 'bottom', label?: string) => {
+    const add = (html: string, lng: number, lat: number, anchor: maplibregl.PositionAnchor = 'bottom', label?: string) => {
       const el = document.createElement('div');
       el.className = 'mk';
       el.innerHTML = html;
@@ -130,45 +126,67 @@ export function createMap(container: HTMLElement, first: MapData, settings: MapS
   }
 
   // Animation: marching dashes along every route, and a dot travelling each one toward the middle.
+  // The dots are DOM markers moved with a CSS transform, so they never make the map re-tile or redraw.
+  // Only the dash pattern repaints the map, about 11 times a second. Everything stops while the map is
+  // off screen or the tab is hidden.
   const lengths = () => data.routes.map((r) => { const acc = [0]; for (let i = 1; i < r.line.length; i++) { const [a, b] = [r.line[i - 1]!, r.line[i]!]; acc.push(acc[i - 1]! + Math.hypot(b[0] - a[0], (b[1] - a[1]))); } return acc; });
   let cum = lengths();
   let frame = 0;
   let step = -1;
+  let onScreen = true;
+  let dots: maplibregl.Marker[] = [];
   const along = (line: [number, number][], acc: number[], t: number): [number, number] => {
     const total = acc[acc.length - 1]!;
     const d = t * total;
-    let i = acc.findIndex((x) => x >= d);
+    const i = acc.findIndex((x) => x >= d);
     if (i <= 0) return line[0]!;
     const f = (d - acc[i - 1]!) / Math.max(acc[i]! - acc[i - 1]!, 1e-12);
     return [line[i - 1]![0] + (line[i]![0] - line[i - 1]![0]) * f, line[i - 1]![1] + (line[i]![1] - line[i - 1]![1]) * f];
   };
+  function placeDots() {
+    dots.splice(0).forEach((m) => m.remove());
+    if (!animate) return;
+    dots = data.routes.filter((r) => r.line.length >= 2).map((r) => {
+      const el = document.createElement('div');
+      el.className = `mk-dot${r.kind === 'you' ? ' you' : ''}`;
+      el.setAttribute('aria-hidden', 'true');
+      return new maplibregl.Marker({ element: el, anchor: 'center' }).setLngLat(r.line[0]!).addTo(map);
+    });
+  }
   function tick(ts: number) {
+    frame = 0;
+    if (!onScreen || document.visibilityState !== 'visible') return;
     frame = requestAnimationFrame(tick);
-    if (document.visibilityState !== 'visible' || !map.getLayer('routes-dash')) return;
-    const s = Math.floor(ts / 60) % DASHES.length;
+    if (!map.getLayer('routes-dash')) return;
+    const s = Math.floor(ts / 90) % DASHES.length;
     if (s !== step) { step = s; map.setPaintProperty('routes-dash', 'line-dasharray', DASHES[s]!); }
-    const feats: Feature[] = data.routes.map((r, i) => {
+    const routes = data.routes.filter((r) => r.line.length >= 2);
+    routes.forEach((r, i) => {
       const period = 4200 + i * 500;
       const t = ((ts + i * 700) % period) / period;
-      return { type: 'Feature', properties: { kind: r.kind }, geometry: { type: 'Point', coordinates: along(r.line, cum[i]!, t) } };
+      dots[i]?.setLngLat(along(r.line, cum[data.routes.indexOf(r)]!, t));
     });
-    (map.getSource('dots') as ML.GeoJSONSource | undefined)?.setData(fc(feats));
   }
+  const resume = () => { if (animate && !frame && onScreen && document.visibilityState === 'visible') frame = requestAnimationFrame(tick); };
+  const seen = new IntersectionObserver(([e]) => { onScreen = !!e?.isIntersecting; resume(); });
+  seen.observe(container);
+  document.addEventListener('visibilitychange', resume);
 
   map.on('style.load', () => { overlays(); });
-  map.once('load', () => { placeMarkers(); fit(); if (animate) frame = requestAnimationFrame(tick); });
+  map.once('load', () => { placeMarkers(); placeDots(); fit(); resume(); });
 
   return {
     update(next: MapData) {
       data = next;
       cum = lengths();
-      (map.getSource('routes') as ML.GeoJSONSource | undefined)?.setData(routeFeatures());
-      (map.getSource('rough') as ML.GeoJSONSource | undefined)?.setData(roughFeatures());
+      (map.getSource('routes') as maplibregl.GeoJSONSource | undefined)?.setData(routeFeatures());
+      (map.getSource('rough') as maplibregl.GeoJSONSource | undefined)?.setData(roughFeatures());
       placeMarkers();
+      placeDots();
       fit(true);
     },
     set3d(on: boolean) { three = on; map.easeTo({ pitch: on ? 55 : 0, bearing: on ? -18 : 0, duration: reduced() ? 0 : 700 }); },
     recentre() { fit(true); },
-    destroy() { cancelAnimationFrame(frame); markers.forEach((m) => m.remove()); map.remove(); },
+    destroy() { cancelAnimationFrame(frame); seen.disconnect(); document.removeEventListener('visibilitychange', resume); markers.forEach((m) => m.remove()); dots.forEach((m) => m.remove()); map.remove(); },
   };
 }
