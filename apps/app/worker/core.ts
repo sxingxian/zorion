@@ -4,6 +4,7 @@ import type { z } from 'zod';
 import { type PlanFeatures, type Plans, normalizePlans } from '@zorion/core';
 import { type Db, type Row, one } from '@zorion/db';
 import { hmac, randomToken, sha256 } from './crypto';
+import { EMAIL_STATUS_KEY, type EmailStatus } from '@zorion/server/settings';
 
 export interface Env {
   DATABASE_URL: string;
@@ -40,6 +41,8 @@ export interface Deps {
   now(): Date;
   /** Emails sent in tests and development, newest last. */
   outbox: Array<{ to: string; subject: string; text: string }>;
+  /** Where the Resend key came from, for the admin portal's email status. */
+  keyFrom?: 'portal' | 'worker' | 'none';
 }
 
 export interface User {
@@ -61,7 +64,7 @@ export type C = Context<App>;
 
 /** A refusal the client can show. Anything else becomes a plain 500 with no detail. */
 export class Fail extends Error {
-  constructor(public status: 400 | 401 | 402 | 403 | 404 | 409 | 410 | 422 | 429, public code: string, message: string, public extra: Record<string, unknown> = {}) {
+  constructor(public status: 400 | 401 | 402 | 403 | 404 | 409 | 410 | 422 | 429 | 503, public code: string, message: string, public extra: Record<string, unknown> = {}) {
     super(message);
   }
 }
@@ -184,21 +187,46 @@ export async function endSession(c: C): Promise<void> {
 }
 
 // ---------- email ----------
+/** Resend's own words for a refusal, trimmed. It never echoes the key. */
+async function resendReason(res: Response): Promise<string> {
+  const data = (await res.json().catch(() => null)) as { message?: unknown; name?: unknown } | null;
+  const msg = typeof data?.message === 'string' ? data.message : typeof data?.name === 'string' ? data.name : '';
+  return `Resend ${res.status}${msg ? `: ${msg.slice(0, 300)}` : ''}`;
+}
+
+async function noteEmail(deps: Deps, status: EmailStatus): Promise<void> {
+  await deps.db.query('insert into settings (key, value) values ($1, $2) on conflict (key) do update set value = excluded.value, updated_at = now()', [EMAIL_STATUS_KEY, JSON.stringify(status)]).catch(() => {});
+}
+
 export async function sendEmail(deps: Deps, to: string, subject: string, text: string): Promise<void> {
   deps.outbox.push({ to, subject, text });
   if (deps.outbox.length > 20) deps.outbox.shift();
   const { RESEND_API_KEY, EMAIL_FROM } = deps.env;
+  const base = { at: deps.now().toISOString(), from: EMAIL_FROM ?? '', key: deps.keyFrom ?? (RESEND_API_KEY ? 'worker' : 'none') } as const;
+  let reason: string | null = null;
   if (!RESEND_API_KEY || !EMAIL_FROM) {
-    if (isProd(deps.env)) throw new Error('Email is not configured: set RESEND_API_KEY and EMAIL_FROM');
-    return; // development: the code stays in the outbox, nothing leaves the machine
+    if (!isProd(deps.env)) return; // development: the code stays in the outbox, nothing leaves the machine
+    reason = 'No Resend key. Add it on the Email page of the admin portal.';
+  } else {
+    try {
+      const res = await deps.fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${RESEND_API_KEY}`, 'content-type': 'application/json' },
+        body: JSON.stringify({ from: EMAIL_FROM, to: [to], subject, text }),
+        signal: AbortSignal.timeout(8000),
+      });
+      if (!res.ok) reason = await resendReason(res);
+    } catch (err) {
+      reason = err instanceof Error && err.name === 'TimeoutError' ? 'Resend did not answer within 8 seconds.' : `Could not reach Resend: ${err instanceof Error ? err.message : 'unknown error'}`;
+    }
   }
-  const res = await deps.fetch('https://api.resend.com/emails', {
-    method: 'POST',
-    headers: { authorization: `Bearer ${RESEND_API_KEY}`, 'content-type': 'application/json' },
-    body: JSON.stringify({ from: EMAIL_FROM, to: [to], subject, text }),
-    signal: AbortSignal.timeout(8000),
-  });
-  if (!res.ok) throw new Error(`Resend refused the email (${res.status})`);
+  if (!reason) {
+    await noteEmail(deps, { ok: true, ...base });
+    return;
+  }
+  console.error('email not sent', reason); // also in the Worker log
+  await noteEmail(deps, { ok: false, ...base, reason });
+  throw new Fail(503, 'email_failed', "We couldn't send the email. Please try again in a few minutes.");
 }
 
 /** What Free and Pro include and what Pro costs, as set in the admin portal. */

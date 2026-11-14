@@ -86,6 +86,11 @@ Hosts sign in with a 6-digit code by email, and hosts and guests can ask for upd
 
 Until a key is saved, nobody can sign in in production: codes are only shown on screen in development.
 
+**If codes don't arrive** ("We couldn't send the email" in the app): open the admin portal's **Email** page. **Last email from the app** shows Resend's own reason, the sender used, and which key (saved in the portal or set on `zorion-app` in Cloudflare). The usual causes:
+- The sender's domain isn't verified in Resend. It must be the exact domain: verifying `midnightpoetry.studio` does not cover `app.midnightpoetry.studio`.
+- The key is limited to a different domain, or was deleted in Resend.
+- On Resend's free plan without a verified domain, mail can only go to your own Resend address.
+
 How email is used:
 - **Sign-in codes** go to hosts only, and only by email (never Telegram).
 - **Updates to hosts**: the date answers, the food votes or the place votes are complete, and a guest changed their reply after the plan was confirmed (at most one an hour per meetup). Hosts switch these off under Account.

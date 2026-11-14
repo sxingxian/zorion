@@ -6,7 +6,7 @@ import { z } from 'zod';
 import { DEFAULT_PLANS, ICONS, TRAVEL_MODES, normalizePlans } from '@zorion/core';
 import { one } from '@zorion/db';
 import { hashPassword, newTotpSecret, otpauthUri, randomToken, seal, sha256, unseal, verifyTotp } from '@zorion/server/crypto';
-import { DEFAULT_EMAIL_FROM, type SettingName, loadSettings, saveSetting, settingsStatus } from '@zorion/server/settings';
+import { DEFAULT_EMAIL_FROM, EMAIL_STATUS_KEY, type EmailStatus, type SettingName, loadSettings, readJson, saveSetting, settingsStatus, tidySettings } from '@zorion/server/settings';
 import { type App, type C, Fail, audit, body, need, stepUp } from './core';
 
 export const config = new Hono<App>();
@@ -165,7 +165,8 @@ const fromSchema = z.string().trim().max(120).regex(/^([^<>"\r\n]{1,60} <)?[^\s@
 config.get('/email', async (c) => {
   need(c);
   const st = await settingsStatus(c.get('deps').db, c.get('deps').env as unknown as Record<string, unknown>);
-  return c.json({ key: st.RESEND_API_KEY, from: st.EMAIL_FROM.hint || DEFAULT_EMAIL_FROM, fromSet: st.EMAIL_FROM.set });
+  const last = await readJson<EmailStatus | null>(c.get('deps').db, EMAIL_STATUS_KEY, null);
+  return c.json({ key: st.RESEND_API_KEY, from: st.EMAIL_FROM.hint || DEFAULT_EMAIL_FROM, fromSet: st.EMAIL_FROM.set, last });
 });
 config.put('/email', async (c) => {
   const input = await body(c, z.object({ apiKey: z.string().trim().regex(/^re_[A-Za-z0-9_]{16,}$/, 'That is not a Resend API key (re_…).').optional(), from: fromSchema, code }));
@@ -178,14 +179,21 @@ config.put('/email', async (c) => {
 config.post('/email/test', async (c) => {
   const admin = need(c, 'super');
   const s = await saved(c);
-  if (!s.RESEND_API_KEY) throw new Fail(409, 'no_key', 'Save the Resend key first.');
-  const res = await c.get('deps').fetch('https://api.resend.com/emails', {
-    method: 'POST', headers: { authorization: `Bearer ${s.RESEND_API_KEY}`, 'content-type': 'application/json' },
-    body: JSON.stringify({ from: s.EMAIL_FROM || DEFAULT_EMAIL_FROM, to: [admin.email], subject: 'Zorion test email', text: 'Email from Zorion is working.' }),
-    signal: AbortSignal.timeout(8000),
-  });
+  // The portal's key wins; otherwise the one set on this Worker in Cloudflare.
+  const env = tidySettings({ ...(c.get('deps').env as unknown as Record<string, unknown>), ...s }) as Record<string, string | undefined>;
+  if (!env.RESEND_API_KEY) throw new Fail(409, 'no_key', 'Save the Resend key first.');
+  let res: Response;
+  try {
+    res = await c.get('deps').fetch('https://api.resend.com/emails', {
+      method: 'POST', headers: { authorization: `Bearer ${env.RESEND_API_KEY}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ from: env.EMAIL_FROM || DEFAULT_EMAIL_FROM, to: [admin.email], subject: 'Zorion test email', text: 'Email from Zorion is working.' }),
+      signal: AbortSignal.timeout(8000),
+    });
+  } catch {
+    throw new Fail(422, 'resend', 'Could not reach Resend. Try again.');
+  }
   const data = (await res.json().catch(() => ({}))) as { message?: string };
-  if (!res.ok) throw new Fail(422, 'resend', `Resend: ${data.message ?? `refused (${res.status})`}`);
+  if (!res.ok) throw new Fail(422, 'resend', `Resend ${res.status}: ${data.message ?? 'refused'}`);
   await audit(c, 'email.test', null);
   return c.json({ ok: true, to: admin.email });
 });
