@@ -1,6 +1,7 @@
 import type { Context } from 'hono';
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie';
 import type { z } from 'zod';
+import { type PlanFeatures, type Plans, normalizePlans } from '@zorion/core';
 import { type Db, type Row, one } from '@zorion/db';
 import { hmac, randomToken, sha256 } from './crypto';
 
@@ -199,6 +200,17 @@ export async function sendEmail(deps: Deps, to: string, subject: string, text: s
   });
   if (!res.ok) throw new Error(`Resend refused the email (${res.status})`);
 }
+
+/** What Free and Pro include and what Pro costs, as set in the admin portal. */
+export async function getPlans(db: Db): Promise<Plans> {
+  const [p, legacy] = await Promise.all([one(db, "select value from settings where key = 'plans'"), one(db, "select value from settings where key = 'group_size'")]);
+  return normalizePlans(p?.value, { groupSize: legacy?.value as { free?: number; pro?: number } | undefined });
+}
+export async function features(db: Db, plan: 'free' | 'pro'): Promise<PlanFeatures> {
+  return (await getPlans(db))[plan];
+}
+/** A 402 the app shows as an upgrade prompt. */
+export const upgrade = (message: string, extra: Record<string, unknown> = {}) => new Fail(402, 'upgrade', message, extra);
 
 export async function setting<T>(db: Db, key: string, fallback: T): Promise<T> {
   const row = await one(db, 'select value from settings where key = $1', [key]);

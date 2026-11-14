@@ -67,11 +67,12 @@ Add these in Cloudflare → each Worker → Settings → **Variables and Secrets
 | `DATABASE_URL` | ✓ | ✓ | From section 1 |
 | `PEPPER` | ✓ | ✓, same value | 40+ random letters and numbers |
 | `TOTP_KEY` | ✓ | ✓, same value | 40+ random letters and numbers |
-| `TELEGRAM_WEBHOOK_SECRET` | ✓ | | 40+ random letters and numbers, only if you set up Telegram |
 
-`PEPPER` keys passwords, codes and session tokens; `TOTP_KEY` encrypts authenticator keys. Make each with your password manager's generator (letters and numbers, 40 or more) and save them there. On a computer, `node scripts/generate-secrets.mjs` prints a fresh set once instead.
+`PEPPER` keys passwords, codes and session tokens; `TOTP_KEY` encrypts authenticator keys and the keys saved in the admin portal (Stripe, Telegram, email). Make each with your password manager's generator (letters and numbers, 40 or more) and save them there. On a computer, `node scripts/generate-secrets.mjs` prints a fresh set once instead.
 
-**Never change `PEPPER` or `TOTP_KEY` once people use Zorion:** it signs everyone out and breaks every password, guest code and authenticator.
+**Never change `PEPPER` or `TOTP_KEY` once people use Zorion:** it signs everyone out and breaks every password, guest code and authenticator, and the keys saved in the admin portal must be entered again.
+
+The Stripe, Telegram and email keys are not Worker secrets: they are entered in the admin portal (sections 4, 5 and Telegram), stored encrypted, and never shown again. A Worker secret with the same name still works as a fallback.
 
 **Never put `PEPPER`, `TOTP_KEY`, `DATABASE_URL`, Stripe keys or the bot token in the repository, in `wrangler.jsonc` `vars`, or in any `.env` file that is committed.**
 
@@ -79,13 +80,11 @@ Add these in Cloudflare → each Worker → Settings → **Variables and Secrets
 
 Hosts sign in with a 6-digit code by email, and hosts and guests can ask for updates by email.
 
-1. Create a Resend account and add a domain with the DNS records it asks for (SPF/DKIM). If `sxingxian.com` is already verified there for Zyra, reuse it.
-2. Create an API key with **sending access only** → `RESEND_API_KEY`.
-3. Cloudflare → Workers & Pages → `zorion-app` → Settings → **Variables and Secrets** → add, as type **Secret**:
-   - `RESEND_API_KEY`
-   - `EMAIL_FROM`, an address on the verified domain, e.g. `Zorion <security@sxingxian.com>`
+1. Create a Resend account and verify the domain `app.midnightpoetry.studio` with the DNS records it asks for (SPF/DKIM).
+2. Create an API key with **sending access only**.
+3. Admin portal → **Email**: paste the key, keep the sender `Zorion <noreply@app.midnightpoetry.studio>` (or another address on that domain), enter your authenticator code and save. Press **Send me a test email**.
 
-Until these are set, nobody can sign in in production: codes are only shown on screen in development.
+Until a key is saved, nobody can sign in in production: codes are only shown on screen in development.
 
 How email is used:
 - **Sign-in codes** go to hosts only, and only by email (never Telegram).
@@ -95,13 +94,12 @@ How email is used:
 ## 5. Stripe (to sell Pro)
 
 1. Create the Stripe account for the business and finish activation (business details, bank account).
-2. Product catalogue → create **Zorion Pro** with a monthly and a yearly recurring price. Copy the two price ids (`price_…`).
-3. Settings → Billing → **Customer portal**: allow cancelling, switching between monthly and yearly, and updating payment methods.
-4. Developers → Webhooks → **Add endpoint**: `https://zorionapp.midnightpoetry.studio/api/webhooks/stripe`, with the events `checkout.session.completed`, `customer.subscription.updated` and `customer.subscription.deleted`. Copy its signing secret (`whsec_…`).
-5. Developers → API keys → copy the secret key (`sk_live_…`).
-6. Cloudflare → `zorion-app` → Settings → Variables and Secrets → add, as **Secret**: `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_MONTHLY`, `STRIPE_PRICE_YEARLY`.
+2. Settings → Billing → **Customer portal**: allow cancelling and updating payment methods.
+3. Developers → API keys → copy the secret key (`sk_live_…`, or `sk_test_…` to rehearse).
+4. Admin portal → **Payments**: paste the key, enter your authenticator code, **Save key**, then **Connect webhook**. Zorion creates the webhook in Stripe itself and keeps its signing secret. **Check connection** shows the account, whether it can take payments, and the webhook.
+5. Admin portal → **Plans & prices**: set the monthly and yearly price in SGD, and what Free and Pro include. Save.
 
-Until these are set, the Pro screen says billing isn't set up yet. A plan changes only when a signed webhook says so, never because the browser says so. Rehearse with the test-mode key, webhook and prices first, then swap in the live ones.
+No Stripe product or price has to be made by hand: checkout uses the prices from the portal. Until a key and a price are saved, the Pro screen says Pro isn't on sale yet. A plan changes only when a signed webhook says so, never because the browser says so. Rehearse with a test key first, then save the live key and press **Reconnect webhook**.
 
 ## 6. First super admin
 
@@ -114,16 +112,18 @@ Admins can't sign up. Create the first one in the browser:
 
 Setup closes for good once any admin exists, even with the right token. Five wrong tokens pause it for 30 minutes, and every try is in the audit log.
 
-From then on, admins always sign in with password, then authenticator. Sensitive actions (suspending or deleting a host, any change to ads) need a second admin's approval once there are two. To add more admins, run `npm run create-admin` on a computer (`apps/site/scripts/create-admin.ts`).
+From then on, admins always sign in with password, then authenticator. Sensitive actions (suspending or deleting a host, any change to ads) need a second admin's approval once there are two. Changing a key (Stripe, Telegram, email) needs a super admin and a fresh authenticator code. To add an admin: **Admins & log** → Invite an admin. Send them the link; it works once, for 24 hours, and they set their own password and authenticator.
 
-## 7. Google AdSense (website ads)
+## 7. Google ads (in the app, for Free users)
+
+Free users see ads in the app; Pro users see none. Each ad spot shows a Google ad when one is available, and Zorion's own sponsored spot when it isn't (no ad unit, the person said no, an ad blocker, or no ad to show).
+
+The Google ad loads in a frame served by `zorion.midnightpoetry.studio/ad-frame`, a different origin from the app, so Google's scripts can't read the app's pages or cookies. The landing page itself shows no ads.
 
 1. Apply for AdSense with `zorion.midnightpoetry.studio`. Approval can take days to weeks.
-2. AdSense → Privacy & messaging → **European regulations**: create and publish the message for visitors from the EEA, UK and Switzerland. Zorion's own banner asks everyone else before any Google script loads.
-3. Admin portal → **Sponsored & ads** → Google AdSense: paste the publisher ID (`ca-pub-…`), keep *Ask for consent before loading ads* on, and save. A second admin approves it. `zorion.midnightpoetry.studio/ads.txt` then serves the matching line within five minutes.
-4. Switch on the **Landing page** placement on the same page.
-
-AdSense runs on the website only, never inside the app. Ads in the app are Zorion's own sponsored slots, also managed on that page.
+2. AdSense → Privacy & messaging → **European regulations**: create and publish the message for visitors from the EEA, UK and Switzerland. Zorion's own prompt asks everyone else before any Google script loads.
+3. AdSense → Ads → **By ad unit** → create a display ad unit. Copy its ID (the number in `data-ad-slot`).
+4. Admin portal → **Ads**: paste the publisher ID (`ca-pub-…`) and the ad unit ID, keep *Ask before showing Google ads* on, and save. A second admin approves it if there is one. `zorion.midnightpoetry.studio/ads.txt` then serves the matching line within five minutes.
 
 ## 8. DNS
 
@@ -168,10 +168,9 @@ Every routed choice sends starting points (with no names) to that service; the p
 Hosts (Account → Telegram) and guests (meetup page → Get updates → On Telegram) can get the same updates as email on Telegram, with the same subject and lines.
 
 1. In Telegram, message **@BotFather**, send `/newbot`, choose a name (e.g. "Zorion") and a username ending in `bot` (e.g. `ZorionMeetBot`). Copy the token.
-2. Cloudflare → `zorion-app` → Settings → Variables and Secrets → add, as **Secret**: `TELEGRAM_BOT_TOKEN` (the token) and `TELEGRAM_BOT_USERNAME` (the username, without @). `TELEGRAM_WEBHOOK_SECRET` too, if you didn't add it in section 3 (40+ random letters and numbers).
-3. Wait up to an hour after the app's next request: it points the bot at `https://zorionapp.midnightpoetry.studio/api/webhooks/telegram` by itself, and does it again if the address or secret changes. To connect at once from a computer: `TELEGRAM_BOT_TOKEN=… TELEGRAM_WEBHOOK_SECRET=… APP_ORIGIN=https://zorionapp.midnightpoetry.studio npm run telegram:setup`.
+2. Admin portal → **Telegram**: paste the token, enter your authenticator code and press **Connect**. Zorion reads the bot's username, makes a webhook secret, and points the bot at `https://zorionapp.midnightpoetry.studio/api/webhooks/telegram`. **Check bot** shows whether messages are arriving.
 
-Until `TELEGRAM_BOT_USERNAME` is set, the Telegram choice doesn't appear anywhere. A bot can only message people who pressed Start in a chat with it, so people connect through a one-time link that opens the bot. Sending `/stop` to the bot, or blocking it, disconnects them. Sign-in codes are never sent on Telegram.
+Until a bot is connected, the Telegram choice doesn't appear anywhere. A bot can only message people who pressed Start in a chat with it, so people connect through a one-time link that opens the bot. Sending `/stop` to the bot, or blocking it, disconnects them. Sign-in codes are never sent on Telegram.
 
 ## How each update goes live
 

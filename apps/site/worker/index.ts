@@ -1,68 +1,11 @@
-import { Hono, type Context } from 'hono';
-import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
+import { Hono } from 'hono';
+import { deleteCookie, getCookie } from 'hono/cookie';
 import { z } from 'zod';
 import { OWN_ICONS, cleanName } from '@zorion/core';
 import { type Db, type Row, neonDb, one } from '@zorion/db';
 import { hashPassword, hmac, newTotpSecret, otpauthUri, randomToken, safeEqual, seal, sha256, unseal, verifyPassword, verifyTotp } from '@zorion/server/crypto';
-
-export interface Env {
-  DATABASE_URL: string;
-  APP_ORIGIN: string;
-  SITE_ORIGIN: string;
-  PEPPER: string;
-  TOTP_KEY: string;
-  ENVIRONMENT?: string;
-  CONTACT_EMAIL?: string; // shown on the privacy and terms pages
-  ADMIN_SETUP_TOKEN?: string; // lets the owner create the first admin in the browser, only while there are none
-}
-interface Deps { db: Db; env: Env; now(): Date }
-interface Admin { id: string; email: string; role: 'super' | 'support' }
-type App = { Bindings: Env; Variables: { deps: Deps; admin: Admin | null; pending: string | null } };
-type C = Context<App>;
-
-class Fail extends Error {
-  constructor(public status: 400 | 401 | 403 | 404 | 409 | 422 | 429, public code: string, message: string) {
-    super(message);
-  }
-}
-const IDLE_MINUTES = 30;
-const secure = (env: Env) => env.SITE_ORIGIN.startsWith('https://');
-const cookie = (env: Env) => (secure(env) ? '__Host-zadmin' : 'zadmin');
-const uuid = z.string().regex(/^[0-9a-f-]{36}$/i);
-
-async function body<S extends z.ZodType>(c: C, schema: S): Promise<z.infer<S>> {
-  const parsed = schema.safeParse(await c.req.json().catch(() => null));
-  if (!parsed.success) throw new Fail(422, 'invalid', parsed.error.issues[0]?.message ?? 'That does not look right.');
-  return parsed.data;
-}
-async function audit(c: C, action: string, target: string | null, detail: Record<string, unknown> = {}): Promise<void> {
-  await c.get('deps').db.query('insert into audit_log (admin_id, action, target, detail) values ($1, $2, $3, $4)', [c.get('admin')?.id ?? null, action, target, JSON.stringify(detail)]);
-}
-function need(c: C, role?: 'super'): Admin {
-  const admin = c.get('admin');
-  if (!admin) throw new Fail(401, 'sign_in', 'Please sign in.');
-  if (role && admin.role !== role) throw new Fail(403, 'forbidden', 'Only a super admin can do that.');
-  return admin;
-}
-async function session(c: C, adminId: string, kind: 'full' | 'pending_2fa'): Promise<void> {
-  const { db, env } = c.get('deps');
-  const token = randomToken();
-  const minutes = kind === 'full' ? IDLE_MINUTES : 5;
-  await db.query('delete from admin_sessions where admin_id = $1 and (kind = $2 or expires_at < now())', [adminId, 'pending_2fa']);
-  await db.query('insert into admin_sessions (admin_id, token_hash, kind, expires_at) values ($1, $2, $3, now() + make_interval(mins => $4::int))', [adminId, await sha256(token), kind, minutes]);
-  setCookie(c, cookie(env), token, { httpOnly: true, secure: secure(env), sameSite: 'Strict', path: '/', maxAge: minutes * 60 });
-}
-const lockKey = async (email: string) => `admin:${await sha256(email)}`;
-async function locked(db: Db, key: string): Promise<boolean> {
-  return !!(await one(db, 'select 1 from throttles where key = $1 and locked_until > now()', [key]));
-}
-async function strike(db: Db, key: string): Promise<void> {
-  const row = await one(db, `insert into throttles (key, count, window_start) values ($1, 1, now()) on conflict (key) do update set
-    count = case when throttles.window_start < now() - interval '15 minutes' then 1 else throttles.count + 1 end,
-    window_start = case when throttles.window_start < now() - interval '15 minutes' then now() else throttles.window_start end returning count`, [key]);
-  if (Number(row?.count ?? 0) >= 5) await db.query("update throttles set locked_until = now() + interval '30 minutes', count = 0 where key = $1", [key]);
-}
-const mask = (email: string) => email.replace(/^(.).*(@.*)$/, '$1•••$2');
+import { type App, type C, type Deps, type Env, Fail, IDLE_MINUTES, audit, body, cookie, lockKey, locked, mask, need, secure, session, strike, uuid } from './core';
+import { config, plans } from './config';
 
 // ---------- sensitive actions: a second admin has to approve ----------
 const ACTIONS = {
@@ -70,7 +13,7 @@ const ACTIONS = {
   'user.delete': z.object({ userId: uuid }),
   'ads.placement': z.object({ key: z.string().max(40), enabled: z.boolean() }),
   'ads.sponsor': z.object({ name: z.string().trim().min(1).max(60), categoryKey: z.string().max(24).nullable(), url: z.string().url().startsWith('https://').max(300).nullable(), startsOn: z.string().date(), endsOn: z.string().date() }),
-  'ads.adsense': z.object({ publisherId: z.string().regex(/^(ca-pub-\d{10,20})?$/), consent: z.boolean() }),
+  'ads.adsense': z.object({ publisherId: z.string().regex(/^(ca-pub-\d{10,20})?$/), slot: z.string().regex(/^(\d{6,20})?$/).default(''), consent: z.boolean() }),
 } as const;
 type Action = keyof typeof ACTIONS;
 
@@ -91,7 +34,7 @@ export function createAdmin(overrides: Partial<Deps> = {}) {
 
   app.use('*', async (c, next) => {
     const env = overrides.env ?? c.env;
-    c.set('deps', { db: overrides.db ?? neonDb(env.DATABASE_URL), env, now: overrides.now ?? (() => new Date()) });
+    c.set('deps', { db: overrides.db ?? neonDb(env.DATABASE_URL), env, now: overrides.now ?? (() => new Date()), fetch: overrides.fetch ?? ((...a: Parameters<typeof fetch>) => fetch(...a)) });
     c.set('admin', null);
     c.set('pending', null);
     await next();
@@ -100,13 +43,41 @@ export function createAdmin(overrides: Partial<Deps> = {}) {
     c.header('x-robots-tag', 'noindex, nofollow');
   });
 
-  // Public, read-only: what the landing page needs to know about ads.
+  // Public, read-only: what the landing page shows about plans and prices.
   app.get('/api/public/config', async (c) => {
-    const { db, env } = c.get('deps');
-    const on = await one(db, "select 1 from ad_placements where key = 'landing' and enabled");
-    const adsense = (await one(db, "select value from settings where key = 'adsense'"))?.value ?? {};
+    const { env } = c.get('deps');
     const contactEmail = env.CONTACT_EMAIL && /^[^\s@<>"']+@[^\s@<>"']+\.[^\s@<>"']+$/.test(env.CONTACT_EMAIL) ? env.CONTACT_EMAIL : null;
-    return c.json({ appUrl: env.APP_ORIGIN, contactEmail, adsense: on && adsense.publisherId ? { publisherId: adsense.publisherId, consent: adsense.consent !== false } : null });
+    c.header('cache-control', 'public, max-age=60');
+    return c.json({ appUrl: env.APP_ORIGIN, contactEmail, plans: await plans(c) });
+  });
+
+  // A Google ad for the app, served from this site inside a frame. The app itself never loads Google's
+  // scripts: the frame is another origin, so an ad cannot read the app's pages or cookies. The frame tells
+  // the app whether an ad showed; if not, the app shows a sponsored slot instead.
+  app.get('/ad-frame', async (c) => {
+    const { db, env } = c.get('deps');
+    const adsense = ((await one(db, "select value from settings where key = 'adsense'"))?.value ?? {}) as { publisherId?: string; slot?: string };
+    const pub = /^ca-pub-\d{10,20}$/.test(adsense.publisherId ?? '') ? adsense.publisherId! : null;
+    const slot = /^\d{6,20}$/.test(adsense.slot ?? '') ? adsense.slot! : null;
+    const nonce = randomToken(16).replace(/[^A-Za-z0-9]/g, '');
+    const app = JSON.stringify(env.APP_ORIGIN);
+    const ad = pub && slot && c.req.query('consent') === 'yes'
+      ? `<ins class="adsbygoogle" style="display:block;width:100%;height:100px" data-ad-client="${pub}" data-ad-slot="${slot}" data-full-width-responsive="true"></ins>
+<script nonce="${nonce}">
+var s = document.createElement('script'); s.async = true; s.crossOrigin = 'anonymous';
+s.src = 'https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${pub}';
+s.onerror = function () { tell('none'); }; document.head.appendChild(s);
+(window.adsbygoogle = window.adsbygoogle || []).push({});
+var ins = document.querySelector('ins');
+new MutationObserver(function () { var s = ins.getAttribute('data-ad-status'); if (s) tell(s === 'filled' ? 'filled' : 'none'); }).observe(ins, { attributes: true });
+setTimeout(function () { if (ins.getAttribute('data-ad-status') !== 'filled') tell('none'); }, 4000);
+</script>`
+      : `<script nonce="${nonce}">tell('none');</script>`;
+    c.header('content-security-policy', `default-src 'none'; script-src 'nonce-${nonce}' 'strict-dynamic' https:; style-src 'unsafe-inline'; img-src https: data:; frame-src https:; connect-src https:; frame-ancestors ${env.APP_ORIGIN}; base-uri 'none'; form-action 'none'`);
+    c.header('cache-control', 'no-store');
+    c.header('referrer-policy', 'strict-origin-when-cross-origin');
+    return c.html(`<!doctype html><html><head><meta charset="utf-8"><meta name="robots" content="noindex"><style>html,body{margin:0;background:transparent}</style>
+<script nonce="${nonce}">var told = false; function tell(s) { if (told) return; told = true; parent.postMessage({ zorionAd: s }, ${app}); }</script></head><body>${ad}</body></html>`);
   });
 
   // AdSense's ads.txt, made from the publisher ID saved in the admin portal, so no file has to be committed.
@@ -357,6 +328,7 @@ export function createAdmin(overrides: Partial<Deps> = {}) {
     });
   });
 
+  api.route('/', config);
   app.route('/admin/api', api);
   app.all('/admin/api/*', (c) => c.json({ error: 'not_found', message: 'Not found.' }, 404));
   app.onError((err, c) => {
@@ -368,4 +340,5 @@ export function createAdmin(overrides: Partial<Deps> = {}) {
 }
 
 export { hmac };
+export type { Env };
 export default { fetch: createAdmin().fetch };

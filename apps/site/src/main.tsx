@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import '@fontsource-variable/bricolage-grotesque';
 import '@fontsource-variable/rubik';
 import './site.css';
+import { ErrorPage } from './errors';
 import { Landing } from './landing';
 
 // The admin portal is a separate chunk, so visitors to the landing page never download it.
@@ -27,7 +28,8 @@ function Root() {
   }
   if (path === '/privacy') return <Suspense fallback={null}><Privacy /></Suspense>;
   if (path === '/terms') return <Suspense fallback={null}><Terms /></Suspense>;
-  return <Landing />;
+  if (path === '/') return <Landing />;
+  return <ErrorPage title="Page not found" text="That page isn't here." action={<a className="errbtn" href="/">Go to Zorion</a>} />;
 }
 
 createRoot(document.getElementById('root')!).render(<StrictMode><Root /></StrictMode>);

@@ -73,6 +73,17 @@ Card details never reach Zorion. Checkout and the customer portal are Stripe's o
 - Stripe webhooks are verified by signature and timestamp, and each event is handled once.
 - A plan changes only on a verified webhook, never on what the browser says.
 
+## Keys entered in the admin portal
+
+- Stripe, Telegram and Resend keys are entered in the admin portal, not Cloudflare. They are encrypted with AES-GCM under a key derived from `TOTP_KEY` before they are stored, and the portal only ever shows the last four characters.
+- Saving or removing a key, connecting the Stripe webhook, inviting an admin or switching one off needs a super admin and a fresh authenticator code (a used code can't be replayed), and is written to the audit log.
+- Admins are invited by a one-time link that expires in 24 hours. The invitee sets their own password and authenticator.
+
+## Ads
+
+- Google ads never run inside the app. Each ad loads in a frame from `zorion.midnightpoetry.studio/ad-frame`, a different origin, so its scripts cannot read the app's pages, cookies or storage. The frame may only be embedded by the app (`frame-ancestors`), and the app accepts messages from that origin only, and only the words "filled" or "none".
+- The app's content security policy allows only that one frame source. The landing page loads no third-party scripts at all.
+
 ## Releases
 
 - Cloudflare pulls each update to `main` from GitHub and builds it; nothing on GitHub can deploy or reach the database. GitHub holds no Cloudflare or Neon key, and its Actions only read the code.

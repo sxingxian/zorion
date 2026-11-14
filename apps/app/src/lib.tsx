@@ -1,3 +1,4 @@
+import type { PlanFeatures, Plans } from '@zorion/core';
 import { type AnchorHTMLAttributes, type ReactNode, createContext, useCallback, useContext, useEffect, useState, useSyncExternalStore } from 'react';
 
 // ---------- API ----------
@@ -102,6 +103,21 @@ export interface Me {
   notify: boolean;
   telegram: boolean; // a Telegram chat is connected
   telegram_ready: boolean; // Zorion's bot is set up
+  features: PlanFeatures; // what this host's plan includes, as set in the admin portal
+}
+
+// ---------- public settings: plans, prices and Google ads ----------
+export interface AppConfig { siteOrigin: string; plans: Plans; googleAds: { consent: boolean; placements: string[] } | null }
+let configPromise: Promise<AppConfig | null> | null = null;
+export function useConfig(): AppConfig | null {
+  const [config, setConfig] = useState<AppConfig | null>(null);
+  useEffect(() => {
+    configPromise ??= api<AppConfig>('GET', '/config').catch(() => { configPromise = null; return null; });
+    let live = true;
+    configPromise.then((c) => live && setConfig(c));
+    return () => { live = false; };
+  }, []);
+  return config;
 }
 export const Session = createContext<{ me: Me | null; refresh: () => Promise<void> }>({ me: null, refresh: async () => {} });
 export const useSession = () => useContext(Session);

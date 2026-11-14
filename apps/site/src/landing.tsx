@@ -1,73 +1,78 @@
-import { type ReactNode, useEffect, useRef, useState } from 'react';
-import { ART, ICONS } from '@zorion/core';
+import { type CSSProperties, useEffect, useRef, useState } from 'react';
+import { ART, DEFAULT_PLANS, ICONS, type Plans, TRAVEL_LABEL, formatPrice } from '@zorion/core';
 
-const svgArt = (inner: string, viewBox: string, size: number, ratio: number, label?: string) => (
-  <svg viewBox={viewBox} width={size} height={Math.round(size * ratio)} role={label ? 'img' : undefined} aria-label={label} aria-hidden={label ? undefined : true} dangerouslySetInnerHTML={{ __html: inner }} />
+// The landing page, built to the approved mockup: a map where everyone's route meets in the middle,
+// three map scenes with a card each, the Pro table (from the plans set in the admin portal) and a pink close.
+
+const art = (inner: string, viewBox: string, w: number, h: number, label?: string) => (
+  <svg viewBox={viewBox} width={w} height={h} role={label ? 'img' : undefined} aria-label={label} aria-hidden={label ? undefined : true} dangerouslySetInnerHTML={{ __html: inner }} />
 );
-const Head = ({ size = 40 }: { size?: number }) => svgArt(ART.headChef!, '-6 -14 132 126', size, 126 / 132);
-const Pig = ({ size, star, label }: { size: number; star?: boolean; label?: string }) => svgArt(star ? ART.fullStarRim! : ART.fullChef!, '0 -22 240 254', size, 254 / 240, label);
-const Food = ({ name, size = 30 }: { name: string; size?: number }) => svgArt(ICONS[name]!, '0 0 24 24', size, 1);
+const Head = ({ size }: { size: number }) => art(ART.headChef!, '-6 -14 132 126', size, Math.round(size * 126 / 132));
+const Pig = ({ w, star, label }: { w: number; star?: boolean; label: string }) => art(star ? ART.fullStarRim! : ART.fullChef!, '0 -22 240 254', w, Math.round(w * 254 / 240), label);
+const Food = ({ name, size }: { name: string; size: number }) => art(ICONS[name] ?? ICONS.star!, '0 0 24 24', size, size);
+const Tick = () => <svg viewBox="0 0 24 24" width={18} height={18} aria-hidden="true"><path d="M5 12.5 L10 17.5 L19 7" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" /></svg>;
 
-/** The drawn city used behind the hero and in each scene. Decorative. */
-function City({ children, dark }: { children?: ReactNode; dark?: boolean }) {
-  const road = dark ? '#2a2a31' : '#fff';
+/** The drawn streets behind every scene. */
+function Streets({ w, h, dark }: { w: number; h: number; dark?: boolean }) {
+  const k = h / 940;
   return (
-    <svg className="city" viewBox="0 0 800 600" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
-      <rect width="800" height="600" fill={dark ? '#17171b' : '#ececf0'} />
-      <path d="M0 470 Q260 400 800 500 V600 H0 Z" fill={dark ? '#18202c' : '#dce6f2'} />
-      <rect x="520" y="70" width="190" height="130" rx="26" fill={dark ? '#1a211b' : '#e1ecdd'} />
-      {[60, 180, 300, 420, 540, 660, 760].map((x, i) => <path key={x} d={`M${x} 0 V600`} stroke={road} strokeWidth={i % 3 === 0 ? 18 : 10} />)}
-      {[50, 160, 270, 380, 490].map((y, i) => <path key={y} d={`M0 ${y} H800`} stroke={road} strokeWidth={i % 2 === 0 ? 18 : 10} />)}
-      {children}
-    </svg>
+    <>
+      <rect width={w} height={h} fill={dark ? '#17171b' : '#ececf0'} />
+      <path d={`M0 ${808 * k} C360 ${583 * k} 648 ${959 * k} 1008 ${771 * k} S1440 ${489 * k} 1460 ${564 * k}`} fill="none" stroke={dark ? '#18202c' : '#dce6f2'} strokeWidth={80 * k} strokeLinecap="round" />
+      <rect x="806" y={94 * k} width="187" height={160 * k} rx="16" fill={dark ? '#1a211b' : '#e1ecdd'} />
+      <rect x="173" y={395 * k} width="144" height={122 * k} rx="16" fill={dark ? '#1a211b' : '#e1ecdd'} />
+      <path d={`M0 ${216 * k} H1440 M0 ${508 * k} H1440 M0 ${780 * k} H1440 M259 0 V${h} M720 0 V${h} M1181 0 V${h} M1008 0 L490 ${h}`} fill="none" stroke={dark ? '#2a2a31' : '#fff'} strokeWidth="16" strokeLinecap="round" />
+    </>
   );
 }
-const Pin = ({ x, y, letter }: { x: number; y: number; letter: string }) => (
-  <g><circle cx={x} cy={y} r="22" fill="#0b0b0d" /><text x={x} y={y + 6} textAnchor="middle" fontSize="18" fontWeight="700" fill="#fff" fontFamily="system-ui">{letter}</text></g>
+const Pins = ({ pins, r, size }: { pins: Array<[number, number, string]>; r: number; size: number }) => (
+  <g fontFamily="Rubik Variable, Rubik, sans-serif" fontSize={size} fontWeight="800" textAnchor="middle">
+    {pins.map(([x, y, l]) => <g key={l}><circle cx={x} cy={y} r={r} fill="#0b0b0d" /><text x={x} y={y + size * 0.35} fill="#fff">{l}</text></g>)}
+  </g>
 );
-const CREW: Array<[number, number, string]> = [[150, 120, 'M'], [640, 100, 'A'], [90, 400, 'S'], [700, 420, 'L'], [300, 520, 'P']];
-// The hero has its own pins, kept clear of the headline card, the mascot and the header button.
-const HERO_CREW: Array<[number, number, string]> = [[150, 120, 'M'], [330, 190, 'S'], [560, 140, 'A'], [720, 250, 'L'], [520, 480, 'P']];
+/** Where a floating chip sits: one place on wide screens, another on phones. */
+const spot = (x: number, y: number, mx: number, my: number) => ({ '--x': `${x}%`, '--y': `${y}%`, '--mx': `${mx}%`, '--my': `${my}%` }) as CSSProperties;
+const routes = (pins: Array<[number, number, string]>, mx: number, my: number) => pins.map(([x, y]) => `M${x} ${y} H${mx} V${my}`).join(' ');
 
-const SCENES = [
-  { n: '01', title: 'Pick the food.', text: 'Up to six options. You vote first.', art: (
-    <City><g>{['pizza', 'ramen', 'tacos', 'bar', 'izakaya', 'hotpot'].map((k, i) => <g key={k} transform={`translate(${150 + (i % 3) * 180} ${170 + Math.floor(i / 3) * 170})`}><rect width="140" height="120" rx="24" fill={i < 3 ? '#0b0b0d' : '#fff'} /><g transform="translate(50 36)" color={i < 3 ? '#fff' : '#0b0b0d'}><Food name={k} size={44} /></g></g>)}</g></City>
-  ) },
-  { n: '02', title: 'Send one link.', text: 'Guests tap their name and vote. No app, no account.', art: (
-    <City>{CREW.map(([x, y, l]) => <Pin key={l} x={x} y={y} letter={l} />)}<rect x="270" y="230" width="260" height="120" rx="28" fill="#fff" /><text x="400" y="282" textAnchor="middle" fontSize="26" fontWeight="700" fontFamily="system-ui" fill="#0b0b0d">zorionapp…/j/7K4P</text><text x="400" y="318" textAnchor="middle" fontSize="18" fill="#5a5a63" fontFamily="system-ui">No account needed to join</text></City>
-  ) },
-  { n: '03', title: 'Meet in the middle.', text: 'Zorion finds the spot that is fairest for everyone, and the places nearest it.', art: (
-    <City><circle cx="400" cy="300" r="150" fill="#ffa6fc" opacity="0.35" /><path d={CREW.map(([x, y]) => `M${x} ${y} H400 V300`).join(' ')} fill="none" stroke="#0b0b0d" strokeWidth="5" strokeDasharray="12 12" strokeLinecap="round" style={{ animation: 'dash 1.4s linear infinite' }} />{CREW.map(([x, y, l]) => <Pin key={l} x={x} y={y} letter={l} />)}<circle cx="400" cy="300" r="46" fill="#fff" stroke="#0b0b0d" strokeWidth="3" /><g transform="translate(364 266) scale(0.6)" dangerouslySetInnerHTML={{ __html: ART.headChef! }} /></City>
-  ) },
-];
+const HERO_PINS: Array<[number, number, string]> = [[170, 190, 'M'], [1280, 170, 'J'], [120, 560, 'S'], [1330, 600, 'L'], [430, 800, 'P'], [1020, 820, 'D']];
+const MOBILE_PINS: Array<[number, number, string]> = [[110, 66, 'M'], [345, 58, 'A'], [40, 241, 'S'], [355, 248, 'L'], [125, 343, 'P'], [270, 339, 'D']];
+const MIDDLE_PINS: Array<[number, number, string, string]> = [[640, 120, 'M', 'Maya · 16 min'], [1330, 130, 'J', 'Jonah · 15 min'], [590, 420, 'S', 'Sofia · 15 min'], [1350, 450, 'L', 'Leo · 13 min'], [790, 650, 'P', 'Priya · 16 min'], [1190, 660, 'D', 'Dev · 16 min']];
+// [icon, label, desktop x%, y%, phone x%, y%, picked]
+const CHIPS: Array<[string, string, number, number, number, number, boolean]> = [['pizza', 'Pizza', 50, 14, 8, 8, true], ['ramen', 'Ramen', 72, 30, 52, 16, true], ['tacos', 'Tacos', 46, 52, 22, 34, true], ['bar', 'Bar', 84, 12, 60, 40, true], ['cocktail', 'Cocktails', 86, 62, 6, 56, false], ['izakaya', 'Izakaya', 64, 76, 50, 62, true]];
+const PEOPLE: Array<[string, string, number, number, number, number]> = [['Maya', 'Host', 8, 14, 6, 6], ['Jonah', 'Voted', 30, 28, 50, 14], ['Sofia', 'Voted', 10, 46, 10, 30], ['Leo', 'Voted', 34, 60, 48, 40], ['Priya', 'Choosing', 12, 76, 6, 54], ['Dev', 'Not yet', 40, 84, 46, 66]];
 
-const PLANS: Array<[string, string, string]> = [
-  ['Meetups and voting', 'Yes', 'Yes'],
-  ['Ads', 'Yes', 'No'],
-  ['Travel times', 'Walking', 'Walk, transit, cycle'],
-  ['Your own food options', '—', 'Yes'],
-  ['Gold theme', '—', 'Yes'],
-  ['Group size', 'Small', 'Large'],
-];
+function planRows(p: Plans): Array<[string, string, string]> {
+  const yes = (v: boolean) => (v ? 'Yes' : '—');
+  const travel = (m: Plans['free']['travel']) => m.map((x) => TRAVEL_LABEL[x]).join(', ');
+  const meetups = (n: number) => (n === 0 ? 'No limit' : `${n} at a time`);
+  const rows: Array<[string, string, string]> = [
+    ['Ads', p.free.ads ? 'Shown' : 'None', p.pro.ads ? 'Shown' : 'None'],
+    ['Group size', `Up to ${p.free.groupSize}`, `Up to ${p.pro.groupSize}`],
+    ['Meetups', meetups(p.free.activeMeetups), meetups(p.pro.activeMeetups)],
+    ['Trip times', travel(p.free.travel), travel(p.pro.travel)],
+    ['Own food options', yes(p.free.ownCategories), yes(p.pro.ownCategories)],
+    ['Gold theme', yes(p.free.goldTheme), yes(p.pro.goldTheme)],
+  ];
+  if (p.price.monthly || p.price.yearly) rows.push(['Price', 'S$0', [p.price.monthly && `${formatPrice(p.price.monthly)} / month`, p.price.yearly && `${formatPrice(p.price.yearly)} / year`].filter(Boolean).join(' or ')]);
+  return rows;
+}
 
-interface Config { appUrl: string; adsense: { publisherId: string; consent: boolean } | null }
+interface Config { appUrl: string; contactEmail: string | null; plans: Plans }
 
 export function Landing() {
   const root = useRef<HTMLDivElement>(null);
   const [config, setConfig] = useState<Config | null>(null);
-  const [consent, setConsent] = useState<string | null>(() => localStorage.getItem('zorion-ads'));
+  useEffect(() => { fetch('/api/public/config').then((r) => (r.ok ? r.json() : null)).then(setConfig).catch(() => {}); }, []);
   const app = config?.appUrl ?? 'https://zorionapp.midnightpoetry.studio';
 
-  useEffect(() => { fetch('/api/public/config').then((r) => r.json()).then(setConfig).catch(() => {}); }, []);
-
-  // Smooth scrolling and scroll-driven motion. Skipped entirely for people who prefer reduced motion.
+  // Smooth scrolling and scroll reveals, loaded after first paint and skipped for reduced motion.
   useEffect(() => {
-    if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-    let cleanup = () => {};
+    if (matchMedia('(prefers-reduced-motion: reduce)').matches) { root.current?.classList.add('still'); return; }
+    let stop = () => {};
     let live = true;
     (async () => {
       const [{ gsap }, { ScrollTrigger }, { default: Lenis }] = await Promise.all([import('gsap'), import('gsap/ScrollTrigger'), import('lenis')]);
-      if (!live || !root.current) return;
+      if (!live) return;
       gsap.registerPlugin(ScrollTrigger);
       const lenis = new Lenis();
       lenis.on('scroll', ScrollTrigger.update);
@@ -75,120 +80,140 @@ export function Landing() {
       gsap.ticker.add(tick);
       gsap.ticker.lagSmoothing(0);
       const ctx = gsap.context(() => {
-        gsap.from('.hero .card > *', { y: 30, opacity: 0, duration: 0.8, stagger: 0.08, ease: 'power3.out' });
-        gsap.utils.toArray<HTMLElement>('.reveal').forEach((el) => gsap.to(el, { opacity: 1, y: 0, duration: 0.9, ease: 'power3.out', scrollTrigger: { trigger: el, start: 'top 82%' } }));
-        gsap.utils.toArray<HTMLElement>('.scene .art').forEach((el) => gsap.fromTo(el, { scale: 0.92 }, { scale: 1, ease: 'none', scrollTrigger: { trigger: el, start: 'top bottom', end: 'center center', scrub: true } }));
-        gsap.fromTo('.closing .giant', { yPercent: 30 }, { yPercent: 0, ease: 'none', scrollTrigger: { trigger: '.closing', start: 'top bottom', end: 'bottom bottom', scrub: true } });
+        gsap.utils.toArray<HTMLElement>('.lp-card').forEach((el) => gsap.fromTo(el, { y: 40, opacity: 0 }, { y: 0, opacity: 1, duration: 0.8, ease: 'power3.out', scrollTrigger: { trigger: el, start: 'top 88%' } }));
+        gsap.fromTo('.lp-close .giant', { yPercent: 25 }, { yPercent: 0, ease: 'none', scrollTrigger: { trigger: '.lp-close', start: 'top bottom', end: 'bottom bottom', scrub: true } });
       }, root);
-      cleanup = () => {
-        ctx.revert();
-        gsap.ticker.remove(tick);
-        lenis.destroy();
-      };
-    })();
-    return () => {
-      live = false;
-      cleanup();
-    };
+      stop = () => { ctx.revert(); gsap.ticker.remove(tick); lenis.destroy(); };
+    })().catch(() => root.current?.classList.add('still'));
+    return () => { live = false; stop(); };
   }, []);
 
-  // The hero becomes a small 3D city once the page is idle. The drawn map underneath stays as the
-  // fallback: for reduced motion, for devices without WebGL, and until the first frame is on screen.
-  const hero = useRef<HTMLElement>(null);
-  const stage = useRef<HTMLDivElement>(null);
-  const anchor = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-    let webgl = false;
-    try { const c = document.createElement('canvas'); webgl = !!(c.getContext('webgl2') || c.getContext('webgl')); } catch { webgl = false; }
-    if (!webgl) return;
-    let stop = () => {};
-    let live = true;
-    const begin = () => import('./hero3d').then(({ mountHero }) => {
-      if (!live || !stage.current) return;
-      const el = hero.current;
-      try { stop = mountHero(stage.current, anchor.current, () => el?.classList.add('is3d')); } catch { el?.classList.remove('is3d'); }
-    }).catch(() => {});
-    // Wait for the page to settle first, so the scene never competes with the headline for the first paint.
-    const timer = window.setTimeout(begin, 350);
-    return () => {
-      live = false;
-      clearTimeout(timer);
-      stop();
-      hero.current?.classList.remove('is3d');
-    };
-  }, []);
-
-  // AdSense runs here only, never inside the app, and only after consent when that is required.
-  const ads = config?.adsense;
-  const adsAllowed = !!ads && (!ads.consent || consent === 'yes');
-  useEffect(() => {
-    if (!adsAllowed || !ads || document.querySelector('script[data-zorion-ads]')) return;
-    const s = document.createElement('script');
-    s.async = true;
-    s.src = `https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${encodeURIComponent(ads.publisherId)}`;
-    s.crossOrigin = 'anonymous';
-    s.dataset.zorionAds = '1';
-    document.head.appendChild(s);
-  }, [adsAllowed, ads]);
-  const decide = (v: 'yes' | 'no') => { localStorage.setItem('zorion-ads', v); setConsent(v); };
-
+  const plans = config?.plans ?? DEFAULT_PLANS;
   return (
-    <div className="land" ref={root}>
-      <header className="top"><div className="wrap"><a className="brandmark" href="/"><Head />Zorion</a><a className="cta dark" style={{ minHeight: 44, fontSize: 15 }} href={app}>Open the app</a></div></header>
+    <div className="lp" ref={root}>
+      {/* ---------- hero ---------- */}
+      <section className="lp-hero">
+        <svg className="lp-hero-map" viewBox="0 0 1440 940" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+          <Streets w={1440} h={940} />
+          <path className="dash" d={routes(HERO_PINS, 720, 770)} fill="none" stroke="#0b0b0d" strokeWidth="4" strokeDasharray="10 10" strokeLinecap="round" strokeLinejoin="round" />
+          <circle className="ping" cx="720" cy="770" r="56" fill="#ffa6fc" />
+          <circle className="ping late" cx="720" cy="770" r="56" fill="#ffa6fc" />
+          <Pins pins={HERO_PINS} r={24} size={18} />
+        </svg>
+        <div className="lp-glow" aria-hidden="true" />
+        <header className="lp-top">
+          <a className="brandmark" href="/"><Head size={44} />Zorion</a>
+          <a className="cta dark small" href={app}>Start a meetup</a>
+        </header>
+        <div className="lp-intro">
+          <h1 className="display">{['Meet', 'in', 'the', 'middle.'].map((w, i) => <span key={w} style={{ animationDelay: `${0.1 + i * 0.12}s` }}>{w}</span>)}</h1>
+          <p>Good fortune, fair walk. Zorion finds the place that's a fair walk for everyone in your group.</p>
+          <a className="cta" href={app}>Start a meetup, free</a>
+          <small>Friends join from a link. No sign-up, no app.</small>
+          <div className="lp-hero-pig bob"><Pig w={190} label="Zorion the black pig, standing at the middle" /></div>
+        </div>
+        {/* Phones get the map as its own block under the words, like the mockup. */}
+        <div className="lp-hero-mobile">
+          <svg viewBox="0 0 390 380" preserveAspectRatio="xMidYMid slice" role="img" aria-label="Map: six friends walking to the fair middle">
+            <Streets w={390} h={380} />
+            <circle className="pulse" cx="195" cy="187" r="125" fill="url(#lpg)" />
+            <defs><radialGradient id="lpg"><stop offset="0%" stopColor="#ffa6fc" stopOpacity="0.6" /><stop offset="60%" stopColor="#ffa6fc" stopOpacity="0.2" /><stop offset="100%" stopColor="#ffa6fc" stopOpacity="0" /></radialGradient></defs>
+            <path className="dash" d={routes(MOBILE_PINS, 195, 187)} fill="none" stroke="#0b0b0d" strokeWidth="3" strokeDasharray="7 7" strokeLinecap="round" strokeLinejoin="round" />
+            <Pins pins={MOBILE_PINS} r={15} size={12} />
+            <circle cx="195" cy="187" r="27" fill="#fff" stroke="#0b0b0d" strokeWidth="2" />
+            <g transform="translate(176 169) scale(0.32)" dangerouslySetInnerHTML={{ __html: ART.headChef! }} />
+          </svg>
+          <div className="bob"><Pig w={130} label="Zorion the black pig" /></div>
+        </div>
+      </section>
 
-      <section className="hero" ref={hero}>
-        <City>{HERO_CREW.map(([x, y, l]) => <Pin key={l} x={x} y={y} letter={l} />)}</City>
-        <div className="stage" ref={stage} />
-        <div className="anchor" ref={anchor}><div className="lift"><div className="walker bob"><Pig size={220} label="Zorion the black pig in a chef hat" /></div></div></div>
-        <div className="wrap" style={{ width: '100%' }}>
-          <div className="card">
-            <h1 className="display">Good fortune, fair walk.</h1>
-            <p>Pick the food, send one link, and meet somewhere fair for everyone.</p>
-            <div className="row"><a className="cta" href={app}>Host a meetup</a><span style={{ color: 'var(--muted)', fontWeight: 600 }}>Got a link? Just open it.</span></div>
+      {/* ---------- you set the ballot ---------- */}
+      <section className="lp-scene">
+        <svg className="lp-scene-map" viewBox="0 0 1440 640" preserveAspectRatio="xMidYMid slice" aria-hidden="true"><Streets w={1440} h={640} /></svg>
+        <div className="lp-floats" aria-hidden="true">
+          {CHIPS.map(([icon, label, x, y, mx, my, on], i) => <div key={label} className={`lp-chip float ${on ? '' : 'off'}`} style={{ ...spot(x, y, mx, my), animationDuration: `${3.2 + i * 0.5}s`, animationDelay: `${i * 0.3}s` }}><Food name={icon} size={28} />{label}{on && <Tick />}</div>)}
+        </div>
+        <div className="lp-card left">
+          <h2 className="display">You set the ballot.</h2>
+          <p>Pick up to six food options. Your crew votes on them.</p>
+        </div>
+      </section>
+
+      {/* ---------- they tap in ---------- */}
+      <section className="lp-scene">
+        <svg className="lp-scene-map" viewBox="0 0 1440 640" preserveAspectRatio="xMidYMid slice" aria-hidden="true"><Streets w={1440} h={640} /></svg>
+        <div className="lp-floats" aria-hidden="true">
+          {PEOPLE.map(([name, status, x, y, mx, my], i) => <div key={name} className="lp-person pop" style={{ ...spot(x, y, mx, my), animationDelay: `${0.2 + i * 0.3}s` }}><span className="av">{name[0]}</span>{name}<small>{status}</small>{status === 'Voted' && <Tick />}{status === 'Choosing' && <i className="dot" />}</div>)}
+        </div>
+        <div className="lp-card right">
+          <h2 className="display">They tap in. No sign-up.</h2>
+          <p>Friends open your link, tap their name, reply and share where they're starting from. Each votes for up to half the options.</p>
+        </div>
+      </section>
+
+      {/* ---------- the fair middle ---------- */}
+      <section className="lp-scene tall">
+        <svg className="lp-scene-map wide" viewBox="0 0 1440 720" preserveAspectRatio="xMidYMid slice" role="img" aria-label="Map: every route leads to the fair middle, with each walk time">
+          <Streets w={1440} h={720} />
+          <defs><radialGradient id="lpm"><stop offset="0%" stopColor="#ffa6fc" stopOpacity="0.6" /><stop offset="60%" stopColor="#ffa6fc" stopOpacity="0.2" /><stop offset="100%" stopColor="#ffa6fc" stopOpacity="0" /></radialGradient></defs>
+          <circle className="pulse" cx="980" cy="370" r="188" fill="url(#lpm)" />
+          <path className="dash" d={routes(MIDDLE_PINS.map(([x, y, l]) => [x, y, l]), 980, 370)} fill="none" stroke="#0b0b0d" strokeWidth="4.5" strokeDasharray="7 7" strokeLinecap="round" strokeLinejoin="round" />
+          <Pins pins={MIDDLE_PINS.map(([x, y, l]) => [x, y, l])} r={22} size={18} />
+          <g fontFamily="Rubik Variable, Rubik, sans-serif" fontSize="18" fontWeight="700" textAnchor="middle" fill="#0b0b0d">{MIDDLE_PINS.map(([x, y, , t]) => <text key={t} x={x} y={y > 600 ? y + 48 : y - 36}>{t}</text>)}</g>
+          <circle cx="980" cy="370" r="40" fill="#fff" stroke="#0b0b0d" strokeWidth="2" />
+          <g transform="translate(952 343) scale(0.48)" dangerouslySetInnerHTML={{ __html: ART.headChef! }} />
+        </svg>
+        <svg className="lp-scene-map phone" viewBox="0 0 390 380" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+          <Streets w={390} h={380} />
+          <circle className="pulse" cx="195" cy="187" r="125" fill="url(#lpm)" />
+          <path className="dash" d={routes(MOBILE_PINS, 195, 187)} fill="none" stroke="#0b0b0d" strokeWidth="3" strokeDasharray="7 7" strokeLinecap="round" strokeLinejoin="round" />
+          <Pins pins={MOBILE_PINS} r={15} size={12} />
+          <circle cx="195" cy="187" r="27" fill="#fff" stroke="#0b0b0d" strokeWidth="2" />
+          <g transform="translate(176 169) scale(0.32)" dangerouslySetInnerHTML={{ __html: ART.headChef! }} />
+        </svg>
+        <div className="lp-card left">
+          <h2 className="display">Zorion finds the fair middle.</h2>
+          <p>He lists the places closest to everyone. You shortlist, the crew picks one, and the link shows the way there.</p>
+          <div className="tags"><span className="t dark">Fiore Pizza</span><span className="t pink">Longest walk 16 min</span><span className="t">Shortest 13 min</span></div>
+        </div>
+      </section>
+
+      {/* ---------- Pro ---------- */}
+      <section className="lp-pro" id="pro">
+        <svg className="lp-scene-map" viewBox="0 0 1440 800" preserveAspectRatio="xMidYMid slice" aria-hidden="true" style={{ opacity: 0.55 }}><Streets w={1440} h={800} dark /></svg>
+        <div className="lp-pro-inner">
+          <div className="lp-stage">
+            <div className="sweep" aria-hidden="true" />
+            {[[12, 10, 20], [82, 16, 16], [20, 62, 14], [76, 58, 18]].map(([x, y, s], i) => <svg key={i} className="twinkle" viewBox="0 0 24 24" aria-hidden="true" style={{ left: `${x}%`, top: `${y}%`, width: s, height: s, animationDelay: `${i * 0.3}s` }}><path d="M12 1 L14.6 8.4 L22.5 8.6 L16.2 13.4 L18.5 20.9 L12 16.4 L5.5 20.9 L7.8 13.4 L1.5 8.6 L9.4 8.4 Z" fill="#f5c242" /></svg>)}
+            <div className="bob"><Pig w={300} star label="Zorion in gold star sunglasses" /></div>
+          </div>
+          <div className="lp-pro-copy">
+            <h2 className="display">Pro</h2>
+            <p>Hosting is free. Pro removes the ads and adds more.</p>
+            <div className="lp-table"><table>
+              <thead><tr><th scope="col" /><th scope="col">Free</th><th scope="col">Pro</th></tr></thead>
+              <tbody>{planRows(plans).map(([k, f, p]) => <tr key={k}><th scope="row">{k}</th><td>{f}</td><td>{p}</td></tr>)}</tbody>
+            </table></div>
+            <div className="lp-btns"><a className="cta gold" href={`${app}/pro`}>Go Pro</a><a className="cta ghost" href={app}>Start free</a></div>
           </div>
         </div>
       </section>
 
-      {SCENES.map((s) => (
-        <section className="scene" key={s.n}>
-          <div className="wrap">
-            <div className="reveal"><div className="num">{s.n}</div><h2 className="display">{s.title}</h2><p>{s.text}</p></div>
-            <div className="art">{s.art}</div>
-          </div>
-        </section>
-      ))}
-
-      <section className="night">
-        <div className="wrap">
-          <div className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-end' }}>
-            <div className="reveal"><h2 className="display">Pro</h2><p className="lead">No ads, plus a few extras.</p></div>
-            <div className="bob"><Pig size={200} star label="Zorion in gold star sunglasses" /></div>
-          </div>
-          <table className="plans reveal">
-            <thead><tr><th scope="col"><span className="sr-only">Feature</span></th><th scope="col">Free</th><th scope="col">Pro</th></tr></thead>
-            <tbody>{PLANS.map(([a, b, c]) => <tr key={a}><td>{a}</td><td>{b}</td><td>{c}</td></tr>)}</tbody>
-          </table>
-          <div className="row" style={{ marginTop: 32 }}><a className="cta gold" href={`${app}/pro`}>See Pro</a></div>
-        </div>
+      {/* ---------- how Zorion treats people ---------- */}
+      <section className="lp-points">
+        {[['Once.', "A starting point is used once, to find the middle. The crew sees walk times, never where anyone is."],
+          ['No account.', 'Guests join with their name and a short code.'],
+          ['Stripe.', 'Card details go straight to Stripe. Zorion never sees them.'],
+          ['Labelled.', 'Ads and sponsored spots are always marked.']].map(([t, d]) => <div key={t}><div className="display">{t}</div><p>{d}</p></div>)}
       </section>
 
-      {adsAllowed && ads && (
-        <div className="adslot"><div className="box"><small>Advertisement</small><ins className="adsbygoogle" style={{ display: 'block' }} data-ad-client={ads.publisherId} data-ad-format="auto" data-full-width-responsive="true" /></div></div>
-      )}
-
-      <section className="closing">
-        <div className="wrap"><h2 className="display" style={{ fontSize: 'clamp(32px, 5vw, 56px)' }}>Plan your next meetup.</h2><div className="row" style={{ justifyContent: 'center', marginTop: 20 }}><a className="cta" href={app}>Host a meetup</a></div></div>
-        <div className="giant" aria-hidden="true">Zorion</div>
+      {/* ---------- close ---------- */}
+      <section className="lp-close">
+        <div className="bob"><Pig w={180} label="Zorion the black pig" /></div>
+        <div className="giant">Zorion</div>
+        <a className="cta dark" href={app}>Start a meetup, free</a>
+        <nav aria-label="Legal"><span>A Midnight Poetry Studio app</span><a href="/privacy">Privacy</a><a href="/terms">Terms</a>{config?.contactEmail && <a href={`mailto:${config.contactEmail}`}>Contact</a>}</nav>
       </section>
-      <footer><span>© {new Date().getFullYear()} Midnight Poetry Studio</span><nav aria-label="Legal"><a href="/privacy">Privacy</a><a href="/terms">Terms</a></nav></footer>
-
-      {ads?.consent && consent === null && (
-        <div className="consent" role="dialog" aria-label="Advertising choice">
-          <span>Allow Google ads on this page?</span>
-          <span className="row"><button onClick={() => decide('no')}>No thanks</button><button className="yes" onClick={() => decide('yes')}>Allow</button></span>
-        </div>
-      )}
     </div>
   );
 }

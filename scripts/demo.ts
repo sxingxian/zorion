@@ -87,7 +87,7 @@ function serve(port: number, root: string, isApi: (path: string) => boolean, api
 }
 
 serve(APP_PORT, 'apps/app/dist/client', (p) => p.startsWith('/api/'), app);
-serve(SITE_PORT, 'apps/site/dist/client', (p) => p.startsWith('/api/') || p.startsWith('/admin/api/'), admin);
+serve(SITE_PORT, 'apps/site/dist/client', (p) => p.startsWith('/api/') || p.startsWith('/admin/api/') || p === '/ad-frame' || p === '/ads.txt', admin);
 
 console.log(`Zorion demo is running. Data lives in memory and is gone when you stop it.
   App      ${env.APP_ORIGIN}

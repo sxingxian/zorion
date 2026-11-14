@@ -4,31 +4,36 @@ import { SITE, tap, totp } from './helpers';
 
 test.use({ viewport: { width: 1280, height: 800 } });
 
-test('landing page: headline, the 3D hero or its drawn fallback, and no page errors', async ({ page }) => {
+test('landing page: headline, the map where routes meet, plans from the admin, and no page errors', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(String(e)));
   await page.goto(SITE);
-  await expect(page.getByRole('heading', { level: 1, name: 'Good fortune, fair walk.' })).toBeVisible();
-  await expect(page.getByRole('link', { name: 'Host a meetup' }).first()).toHaveAttribute('href', 'http://localhost:5173');
-  // Either the 3D scene took over, or the drawn map is still showing. Never neither.
-  await page.waitForTimeout(2500);
-  const is3d = await page.locator('.hero.is3d canvas').count();
-  if (is3d) await expect(page.locator('.hero.is3d canvas')).toBeVisible();
-  else await expect(page.locator('.hero svg.city')).toBeVisible();
-  await expect(page.locator('.hero .walker')).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: 'Meet in the middle.' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Start a meetup, free' }).first()).toHaveAttribute('href', 'http://localhost:5173');
+  await expect(page.locator('.lp-hero-map .dash')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Zorion finds the fair middle.' })).toBeVisible();
+  await expect(page.locator('.lp-table')).toContainText('Up to 30');
+  await expect(page.locator('ins.adsbygoogle')).toHaveCount(0); // no Google ads on the landing page
   expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
   expect(errors).toEqual([]);
 });
 
-test('landing page with reduced motion keeps the drawn map and loads no 3D', async ({ browser }) => {
-  const page = await (await browser.newContext({ reducedMotion: 'reduce', viewport: { width: 1280, height: 800 } })).newPage();
+test('landing page on a phone shows the map under the words, and with reduced motion loads no animation code', async ({ browser }) => {
+  const page = await (await browser.newContext({ reducedMotion: 'reduce', viewport: { width: 390, height: 844 } })).newPage();
   const scripts: string[] = [];
   page.on('request', (r) => { if (r.resourceType() === 'script') scripts.push(r.url()); });
   await page.goto(SITE);
   await page.waitForTimeout(1500);
-  await expect(page.locator('.hero svg.city')).toBeVisible();
-  await expect(page.locator('.hero canvas')).toHaveCount(0);
-  expect(scripts.some((u) => /hero3d|gsap|lenis/.test(u))).toBe(false);
+  await expect(page.locator('.lp-hero-mobile svg').first()).toBeVisible();
+  await expect(page.locator('.lp-hero-map')).toBeHidden();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
+  expect(scripts.some((u) => /gsap|lenis/.test(u))).toBe(false);
+});
+
+test('a missing page on the site shows Zorion\'s own page', async ({ page }) => {
+  await page.goto(`${SITE}/nope`);
+  await expect(page.getByRole('heading', { name: 'Page not found' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Go to Zorion' })).toHaveAttribute('href', '/');
 });
 
 test('privacy and terms pages say what the app does', async ({ page }) => {
@@ -39,7 +44,7 @@ test('privacy and terms pages say what the app does', async ({ page }) => {
   await page.getByRole('navigation', { name: 'Legal' }).getByRole('link', { name: 'Terms' }).click();
   await expect(page.getByRole('heading', { level: 1, name: 'Terms' })).toBeVisible();
   await page.goto(SITE);
-  await expect(page.locator('footer a[href="/privacy"]')).toBeVisible();
+  await expect(page.locator('.lp-close a[href="/privacy"]')).toBeVisible();
 });
 
 test('admin: password, then authenticator; a setting change lands in the audit log', async ({ page }) => {
@@ -54,14 +59,49 @@ test('admin: password, then authenticator; a setting change lands in the audit l
   await tap(page, 'Verify and sign in');
   await expect(page.getByRole('heading', { name: 'Overview' })).toBeVisible();
 
-  await page.getByRole('link', { name: 'Categories & rules' }).click();
+  await page.getByRole('link', { name: 'Categories' }).click();
   await page.getByLabel('Trip times come from').selectOption('google');
   await expect(page.getByRole('status')).toHaveText('Saved.');
   await page.getByLabel('Trip times come from').selectOption('estimate'); // leave the demo as it was
-  await page.getByRole('link', { name: 'Access & audit' }).click();
+  await page.getByRole('link', { name: 'Admins & log' }).click();
   await expect(page.getByText('routing_provider').first()).toBeVisible();
 
   // Without a session the admin API gives nothing away.
   const res = await (await page.context().browser()!.newContext()).request.get(`${SITE}/admin/api/users`);
   expect(res.status()).toBe(401);
+});
+
+test('admin: prices and categories set in the portal show up in the app', async ({ page, browser }) => {
+  await page.goto(`${SITE}/admin`);
+  await page.locator('input[type=email]').fill('admin@example.com');
+  await page.locator('input[type=password]').fill('demo-admin-password');
+  await tap(page, 'Continue');
+  await page.locator('input[inputmode=numeric]').fill(totp(ADMIN_KEY, Date.now() + 30_000));
+  await tap(page, 'Verify and sign in');
+  await page.getByRole('link', { name: 'Plans & prices' }).click();
+  await page.getByLabel('Monthly').fill('4.90');
+  await page.getByLabel('Yearly').fill('49');
+  await tap(page, 'Save plans and prices');
+  await expect(page.getByRole('status')).toHaveText('Saved.');
+
+  await page.getByRole('link', { name: 'Categories' }).click();
+  await tap(page, 'Add category');
+  await page.getByLabel('Name').fill('Hotpot');
+  await page.getByRole('button', { name: 'hotpot', exact: true }).click();
+  await page.getByLabel('OpenStreetMap cuisine words, comma separated').fill('hotpot, steamboat');
+  await tap(page, 'Save');
+  await expect(page.getByRole('cell', { name: 'Hotpot', exact: true }).first()).toBeVisible();
+
+  await page.getByRole('link', { name: 'Admins & log' }).click();
+  await expect(page.getByText('plans.save').first()).toBeVisible();
+  await page.goto(`${SITE}/admin/nope`);
+  await expect(page.getByRole('heading', { name: 'Page not found' })).toBeVisible();
+
+  const app = await (await browser.newContext({ viewport: { width: 390, height: 844 } })).newPage();
+  const config = await (await app.request.get('http://localhost:5173/api/config')).json();
+  expect(config.plans.price).toMatchObject({ monthly: 490, yearly: 4900 });
+  const cats = await (await app.request.get('http://localhost:5173/api/categories')).json();
+  expect(cats.categories.map((c: { name: string }) => c.name)).toContain('Hotpot');
+  await app.goto('http://localhost:5173/nope');
+  await expect(app.getByRole('heading', { name: 'Page not found' })).toBeVisible();
 });

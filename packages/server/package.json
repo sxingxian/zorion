@@ -3,5 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "exports": { "./crypto": "./src/crypto.ts" }
+  "exports": {
+    "./crypto": "./src/crypto.ts",
+    "./settings": "./src/settings.ts"
+  }
 }
