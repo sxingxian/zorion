@@ -690,10 +690,46 @@ function MapKey({ service, maps, routing, places, onChange }: { service: 'google
       {broken && <div className="err">{name} refused this key at the last check, so {fallback}.</div>}
       {routesOff && <div className="warn"><span>Routes API is off for this key, so trip times use Zorion's estimate. Turn it on in Google Cloud, then check again.</span><button className="btn" disabled={busy} onClick={() => run(async () => { const r = await call('POST', '/maps/check'); onChange(); if (r.error) throw new Error(r.error); }, 'Checked')}>Check again</button></div>}
       {runErr && <div className="err" role="alert">{runErr}</div>}
+      {service === 'google' && maps.usage && <GoogleUsage usage={maps.usage} onChange={onChange} />}
       {replacing ? form : sure ? (
         <div className="confirm" role="alert"><span><strong>Remove the {name} key?</strong> Then {fallback}.</span>
           <div className="row"><button className="btn" onClick={() => setSure(false)}>Keep</button><button className="btn danger" onClick={async () => { if (await confirm(`Remove the ${name} key`, (code) => call('POST', `/maps/${service}/remove`, { code }))) { setSure(false); toast('Key removed'); onChange(); } }}>Remove</button></div></div>
       ) : <div className="row"><button className="btn" onClick={() => setReplacing(true)}>Replace key</button><button className="btn danger" onClick={() => setSure(true)}>Remove</button></div>}
+    </div>
+  );
+}
+
+const BUDGET_LABEL: Record<string, string> = { '50': 'At 50% of the free allowance', '75': 'At 75% of the free allowance', '90': 'At 90% of the free allowance', '100': 'When the free allowance is used up', paid: 'Never: keep using Google and pay' };
+const FREE_FALLBACK: Record<string, string> = { places_text: 'place searches use OpenStreetMap', places_nearby: 'place searches use OpenStreetMap', lookup: 'starting places are looked up on OpenStreetMap', routes: "trip times use OpenStreetMap routing or Zorion's estimate" };
+const until = (iso: string) => new Date(`${iso}T12:00:00Z`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+
+/** This month's Google use against the free allowance, and when to switch to the free services. */
+function GoogleUsage({ usage, onChange }: { usage: R; onChange: () => void }) {
+  const [run, , err] = useRun();
+  const services = usage.services as R[];
+  const used = services.filter((s) => s.used > 0 || s.limit !== null);
+  const over = services.filter((s) => s.limit !== null && s.used >= s.limit);
+  return (
+    <div className="usage">
+      <div className="line flat"><strong>This month's Google use</strong><span className="sub">Resets {until(usage.resets)}</span></div>
+      {used.map((s) => {
+        const cap = s.limit ?? s.free;
+        const pct = Math.min(100, Math.round((s.used / Math.max(cap, 1)) * 100));
+        return (
+          <div key={s.key} className="meter">
+            <div className="line flat"><span>{s.label}</span><span className="sub">{s.used.toLocaleString('en-GB')} of {s.limit !== null ? s.limit.toLocaleString('en-GB') : `${s.free.toLocaleString('en-GB')} free`}</span></div>
+            <div className="bar" role="progressbar" aria-label={s.label} aria-valuemin={0} aria-valuemax={cap} aria-valuenow={s.used}><i style={{ width: `${pct}%` }} className={pct >= 100 ? 'full' : ''} /></div>
+          </div>
+        );
+      })}
+      {usage.pausedUntil && <div className="warn"><span>Google refused a request, so Zorion is using the free services until {new Date(usage.pausedUntil).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}.</span></div>}
+      {over.length > 0 && <div className="warn"><span>Free allowance reached: {[...new Set(over.map((s) => FREE_FALLBACK[s.key]))].join(', ')} until {until(usage.resets)}.</span></div>}
+      <Field label="Switch to the free services" hint={usage.budget === 'paid' ? 'Google bills you for use past the free allowance. Set a budget alert in Google Cloud.' : 'Counts Zorion\'s own calls. If other apps share your Google billing account, pick a lower share.'}>
+        <select className="input" value={usage.budget} onChange={(e) => run(async () => { await call('PUT', '/settings', { google_budget: e.target.value }); onChange(); }, 'Saved')}>
+          {Object.entries(BUDGET_LABEL).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+        </select>
+      </Field>
+      {err && <div className="err" role="alert">{err}</div>}
     </div>
   );
 }
@@ -929,6 +965,7 @@ function describe(l: R, admins: R[]): string {
         if (l.target === 'places_provider') return `Changed places to ${PLACES[detail.value] ?? detail.value}`;
         if (l.target === 'routing_provider') return `Changed trip times to ${ROUTES[detail.value] ?? detail.value}`;
         if (l.target === 'blocked_words') return 'Changed blocked words';
+        if (l.target === 'google_budget') return detail.value === 'paid' ? 'Set Google to keep running past the free allowance' : detail.value === '100' ? 'Set Google to switch to free services when the free allowance is used up' : `Set Google to switch to free services at ${detail.value}% of the free allowance`;
         return 'Changed a setting';
       case 'admin.invite': return `Invited ${l.target} (${detail.role === 'super' ? 'full access' : 'support'})`;
       case 'admin.join': return 'Joined as an admin';

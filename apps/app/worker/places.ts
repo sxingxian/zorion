@@ -1,4 +1,5 @@
 import type { Point } from '@zorion/core';
+import { isGoogleRefusal, pauseGoogle, takeGoogle } from '@zorion/server/google';
 import type { Deps } from './core';
 import { setting } from './core';
 
@@ -71,20 +72,35 @@ async function searchGoogle(deps: Deps, center: Point, radius: number, cat: Cate
     body: JSON.stringify(payload),
     signal: AbortSignal.timeout(10000),
   });
-  if (!res.ok) throw new Error(`Google Places search failed (${res.status})`);
+  if (!res.ok) {
+    if (isGoogleRefusal(res.status)) await pauseGoogle(deps.db, deps.now());
+    throw new Error(`Google Places search failed (${res.status})`);
+  }
   const data = (await res.json()) as { places?: Array<{ id: string; displayName?: { text?: string }; location?: { latitude: number; longitude: number }; shortFormattedAddress?: string; rating?: number; currentOpeningHours?: { openNow?: boolean } }> };
   return (data.places ?? [])
     .filter((p) => p.location && p.displayName?.text)
     .map((p) => ({ ref: p.id, name: p.displayName!.text!.slice(0, 80), lat: p.location!.latitude, lng: p.location!.longitude, address: p.shortFormattedAddress ?? null, rating: p.rating ?? null, openNow: p.currentOpeningHours?.openNow ?? null }));
 }
 
-/** Widens the search until there are enough places, or gives up at about a 40 minute walk. */
+/**
+ * Widens the search until there are enough places, or gives up at about a 40 minute walk.
+ * Google is used while this month's free allowance lasts (see @zorion/server/google). When it runs
+ * out, or Google refuses, the search carries on with OpenStreetMap, which is free.
+ */
 export async function findPlaces(deps: Deps, center: Point, cat: CategoryQuery): Promise<{ provider: Provider; places: FoundPlace[] }> {
-  const provider = await activeProvider(deps);
-  const search = provider === 'google' ? searchGoogle : searchOsm;
+  let provider = await activeProvider(deps);
+  const service = !cat.own && cat.google.type ? 'places_nearby' : 'places_text';
   let places: FoundPlace[] = [];
   for (const radius of [700, 1500, 3000]) {
-    places = await search(deps, center, radius, cat);
+    if (provider === 'google') {
+      try {
+        if (!(await takeGoogle(deps.db, service, 1, deps.now()))) throw new Error('free allowance used');
+        places = await searchGoogle(deps, center, radius, cat);
+      } catch {
+        provider = 'osm';
+      }
+    }
+    if (provider === 'osm') places = await searchOsm(deps, center, radius, cat);
     if (places.length >= 5) break;
   }
   const seen = new Set<string>();

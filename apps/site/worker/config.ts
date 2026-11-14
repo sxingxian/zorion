@@ -7,6 +7,7 @@ import { DEFAULT_PLANS, ICONS, TRAVEL_MODES, normalizePlans } from '@zorion/core
 import { one } from '@zorion/db';
 import { hashPassword, newTotpSecret, otpauthUri, randomToken, seal, sha256, unseal, verifyTotp } from '@zorion/server/crypto';
 import { DEFAULT_EMAIL_FROM, EMAIL_STATUS_KEY, type EmailStatus, type SettingName, loadSettings, readJson, saveSetting, settingsStatus, tidySettings } from '@zorion/server/settings';
+import { googleUsage } from '@zorion/server/google';
 import { type App, type C, Fail, audit, body, need, stepUp } from './core';
 
 export const config = new Hono<App>();
@@ -241,7 +242,7 @@ config.get('/maps', async (c) => {
   need(c);
   const { db, env } = c.get('deps');
   const st = await settingsStatus(db, env as unknown as Record<string, unknown>);
-  return c.json({ google: st.GOOGLE_PLACES_KEY, ors: st.ORS_API_KEY, status: await readJson<MapsStatus>(db, MAPS_STATUS, {}) });
+  return c.json({ google: st.GOOGLE_PLACES_KEY, ors: st.ORS_API_KEY, status: await readJson<MapsStatus>(db, MAPS_STATUS, {}), usage: await googleUsage(db, c.get('deps').now()) });
 });
 config.put('/maps/google', async (c) => {
   const input = await body(c, z.object({ key: z.string().trim().regex(/^[A-Za-z0-9_-]{30,60}$/, "That isn't a Google API key. It starts with AIza."), code }));

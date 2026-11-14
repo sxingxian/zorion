@@ -26,6 +26,7 @@ function browser(app: ReturnType<typeof createApp>, ip = '198.51.100.1') {
 // Outside services, faked. `calls` records what Zorion sent them.
 const calls: Array<{ url: string; body: any; headers: Record<string, string> }> = [];
 let routesDown = false;
+let osrmDown = false;
 const fakeFetch = (async (input: string, init?: RequestInit) => {
   const url = String(input);
   const headers = Object.fromEntries(new Headers(init?.headers).entries());
@@ -49,6 +50,7 @@ const fakeFetch = (async (input: string, init?: RequestInit) => {
     return Response.json(out);
   }
   if (url.includes('/table/v1/')) {
+    if (osrmDown) return new Response('no', { status: 503 });
     // OSRM: rows of sources, columns of destinations, seconds. Same flipped order as the Google fake; one pair has no route.
     const u = new URL(url);
     const src = u.searchParams.get('sources')!.split(';');
@@ -166,15 +168,31 @@ describe('routed travel times', () => {
     expect(await (deps.db as any).query('select count(*)::int as n from place_times')).toEqual([{ n: 7 }]); // the host's routed times remain (one pair had no route)
   });
 
-  it('falls back to the estimate for everyone when the routing service is down', async () => {
-    routesDown = true;
+  it('when Google routes are down, the free OpenStreetMap routing takes over; when that is down too, the estimate', async () => {
+    routesDown = true; // a 503 is a glitch, not a refusal, so Google is not paused
+    await (deps.db as any).query("delete from throttles where key = 'osrm-gate'");
     await newMeetup('Routes down');
     await guest('POST', `/api/g/${token}/location`, { lat: 1.3, lng: 103.86 });
     await h('POST', `/api/meetups/${id}/location`, { lat: 1.3, lng: 103.84 });
-    const r = await h('POST', `/api/meetups/${id}/middle`, {});
+    calls.length = 0;
+    let r = await h('POST', `/api/meetups/${id}/middle`, {});
     expect(r.status).toBe(200);
-    expect(r.body.meetup.places.every((p: any) => p.routed === false)).toBe(true);
-    routesDown = false;
+    expect(calls.some((c) => c.url.includes('/table/v1/'))).toBe(true);
+    expect(r.body.meetup.places.every((p: any) => p.routed === true)).toBe(true);
+
+    osrmDown = true;
+    try {
+      await (deps.db as any).query("delete from throttles where key = 'osrm-gate'");
+      await newMeetup('Both down');
+      await guest('POST', `/api/g/${token}/location`, { lat: 1.3, lng: 103.86 });
+      await h('POST', `/api/meetups/${id}/location`, { lat: 1.3, lng: 103.84 });
+      r = await h('POST', `/api/meetups/${id}/middle`, {});
+      expect(r.status).toBe(200);
+      expect(r.body.meetup.places.every((p: any) => p.routed === false)).toBe(true);
+    } finally {
+      routesDown = false;
+      osrmDown = false;
+    }
   });
 
   it('asks for transit by arrival time, in requests of at most 100 pairs', async () => {

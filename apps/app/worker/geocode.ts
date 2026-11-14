@@ -1,5 +1,6 @@
 import type { Point } from '@zorion/core';
 import type { Deps } from './core';
+import { isGoogleRefusal, pauseGoogle, takeGoogle } from '@zorion/server/google';
 import { activeProvider } from './places';
 
 export interface StartResult extends Point {
@@ -49,7 +50,10 @@ async function searchGoogleText(deps: Deps, q: string, near: Near): Promise<Star
     body: JSON.stringify({ textQuery: q, pageSize: 5, ...(near.country ? { regionCode: near.country.toUpperCase() } : {}), ...bias }),
     signal: AbortSignal.timeout(8000),
   });
-  if (!res.ok) throw new Error(`Google lookup failed (${res.status})`);
+  if (!res.ok) {
+    if (isGoogleRefusal(res.status)) await pauseGoogle(deps.db, deps.now());
+    throw new Error(`Google lookup failed (${res.status})`);
+  }
   const data = (await res.json()) as { places?: Array<{ displayName?: { text?: string }; formattedAddress?: string; location?: { latitude: number; longitude: number } }> };
   return (data.places ?? [])
     .filter((p) => p.location && (p.displayName?.text || p.formattedAddress))
@@ -65,5 +69,9 @@ async function searchGoogleText(deps: Deps, q: string, near: Near): Promise<Star
 export async function findStart(deps: Deps, raw: string, near: Near): Promise<StartResult[]> {
   const q = tidy(raw);
   if (q.length < 3) return [];
-  return (await activeProvider(deps)) === 'google' ? searchGoogleText(deps, q, near) : searchNominatim(deps, q, near);
+  // Google while the month's free allowance lasts; the free OpenStreetMap lookup otherwise, or if Google fails.
+  if ((await activeProvider(deps)) === 'google' && (await takeGoogle(deps.db, 'lookup', 1, deps.now()))) {
+    try { return await searchGoogleText(deps, q, near); } catch { /* fall through to the free lookup */ }
+  }
+  return searchNominatim(deps, q, near);
 }

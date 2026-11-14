@@ -1,4 +1,5 @@
 import type { Point, TravelMode } from '@zorion/core';
+import { isGoogleRefusal, pauseGoogle, takeGoogle } from '@zorion/server/google';
 import type { Deps } from './core';
 import { setting } from './core';
 
@@ -36,7 +37,16 @@ export async function routeMatrix(deps: Deps, provider: RoutingProvider, origins
   if (origins.length === 0 || destinations.length === 0) return origins.map(() => destinations.map(() => null));
   if (provider === 'osrm') return osrmMatrix(deps, origins, destinations, mode);
   if (provider === 'ors') return orsMatrix(deps, origins, destinations, mode);
-  return googleMatrix(deps, origins, destinations, mode, arriveBy);
+  // Google while the month's free allowance lasts (billed per origin–destination pair). When it runs
+  // out or Google refuses, the free OpenStreetMap routing takes over where it can; otherwise this
+  // throws and the caller uses Zorion's estimate.
+  try {
+    if (!(await takeGoogle(deps.db, 'routes', origins.length * destinations.length, deps.now()))) throw new Error('free allowance used');
+    return await googleMatrix(deps, origins, destinations, mode, arriveBy);
+  } catch (err) {
+    if (canRoute(deps, 'osrm', mode)) return osrmMatrix(deps, origins, destinations, mode);
+    throw err;
+  }
 }
 
 const toMinutes = (seconds: unknown): number | null => (typeof seconds === 'number' && Number.isFinite(seconds) ? Math.max(1, Math.round(seconds / 60)) : null);
@@ -116,7 +126,10 @@ async function googleMatrix(deps: Deps, origins: readonly Point[], destinations:
       }),
       signal: AbortSignal.timeout(12000),
     });
-    if (!res.ok) throw new Error(`Google Routes failed (${res.status})`);
+    if (!res.ok) {
+      if (isGoogleRefusal(res.status)) await pauseGoogle(deps.db, deps.now());
+      throw new Error(`Google Routes failed (${res.status})`);
+    }
     const rows = (await res.json()) as Array<{ originIndex?: number; destinationIndex?: number; status?: { code?: number }; condition?: string; duration?: string }>;
     if (!Array.isArray(rows)) throw new Error('Google Routes sent an unexpected answer');
     for (const el of rows) {
