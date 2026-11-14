@@ -1,6 +1,6 @@
 import { type ReactNode, useContext, useEffect, useId, useRef, useState } from 'react';
-import { ART, ICONS } from '@zorion/core';
-import { Link, Look, api, useConfig } from './lib';
+import { ART, AVATAR_ART, AVATAR_VIEWBOX, type Avatar, ICONS } from '@zorion/core';
+import { Link, Look, api, openPro, useConfig } from './lib';
 
 const svg = (inner: string, viewBox: string, size: number, ratio = 1, label?: string) => (
   <svg viewBox={viewBox} width={size} height={Math.round(size * ratio)} style={{ flex: 'none' }} role={label ? 'img' : undefined} aria-label={label} aria-hidden={label ? undefined : true} dangerouslySetInnerHTML={{ __html: inner }} />
@@ -25,24 +25,37 @@ const line = (d: string, size = 20, w = 2.5) => (
 export const Check = ({ size = 18 }: { size?: number }) => line('M5 12.5 L10 17.5 L19 7', size, 3);
 export const Chevron = () => line('M9 5 L16 12 L9 19', 18);
 export const Plus = () => line('M12 5 V19 M5 12 H19', 18);
-const Back = () => line('M15 5 L8 12 L15 19', 20);
-const Cross = () => line('M6 6 L18 18 M18 6 L6 18', 18);
+export const Back = () => line('M15 5 L8 12 L15 19', 20);
+export const Cross = () => line('M6 6 L18 18 M18 6 L6 18', 18);
 
-const STEPS = ['Vote', 'Middle', 'Places', 'Go'];
-export function Trail({ step }: { step: number }) {
+/** A host's pig: the picture they picked in Account. It bobs gently; the one being picked wiggles. */
+export function Pig({ avatar, size = 40, motion = 'bob', label, delay = 0 }: { avatar?: string | null; size?: number; motion?: 'bob' | 'wiggle' | 'none'; label?: string; delay?: number }) {
+  const art = AVATAR_ART[(avatar as Avatar) in AVATAR_ART ? (avatar as Avatar) : 'chef'];
   return (
-    <nav className="trail" aria-label="Steps">
-      {STEPS.map((s, i) => (
-        <span key={s} className={i + 1 < step ? 'done' : i + 1 === step ? 'now' : ''} aria-current={i + 1 === step ? 'step' : undefined}>
-          <b>{i + 1 < step ? <i className="tick"><Check size={14} /></i> : i + 1 === step ? <Mascot size={40} bob /> : <i className="dot" />}</b>
-          {s}
-        </span>
-      ))}
-    </nav>
+    <span className="pig" style={{ width: size, height: size }} role={label ? 'img' : undefined} aria-label={label} aria-hidden={label ? undefined : true}>
+      <svg viewBox={AVATAR_VIEWBOX} width={Math.round(size * 0.86)} height={Math.round(size * 0.86)} className={motion === 'none' ? undefined : motion} style={{ animationDelay: `${delay}ms` }} dangerouslySetInnerHTML={{ __html: art }} />
+    </span>
   );
 }
 
-export function Header({ title, sub, back, onBack, step, right }: { title: ReactNode; sub?: ReactNode; back?: string; onBack?: () => void; step?: number; right?: ReactNode }) {
+/** Where the meetup is up to. Hosts: Invite, (Date), Food, Place, Confirmed. Guests: Reply, (Date), Food, Place, Confirmed. */
+export function Steps({ names, current }: { names: string[]; current: number }) {
+  return (
+    <ol className="steps" aria-label={`Step ${current + 1} of ${names.length}: ${names[current]}`}>
+      {names.map((n, i) => <li key={n} className={i < current ? 'done' : i === current ? 'now' : ''} aria-current={i === current ? 'step' : undefined}><i /><span>{n}</span></li>)}
+    </ol>
+  );
+}
+export const hostSteps = (dateVote: boolean) => (dateVote ? ['Invite', 'Date', 'Food', 'Place', 'Confirmed'] : ['Invite', 'Food', 'Place', 'Confirmed']);
+export const guestSteps = (dateVote: boolean) => (dateVote ? ['Reply', 'Date', 'Food', 'Place', 'Confirmed'] : ['Reply', 'Food', 'Place', 'Confirmed']);
+
+/** The bottom buttons of a screen. Stick to the bottom on a phone, sit after the content on a desktop. */
+export const Actions = ({ children }: { children: ReactNode }) => <div className="actions">{children}</div>;
+
+/** A small "Pro" tag that opens the Pro sheet. */
+export const ProTag = () => <button type="button" className="chip pro" onClick={(e) => { e.stopPropagation(); openPro(); }}>Pro</button>;
+
+export function Header({ title, sub, back, onBack, steps, right }: { title: ReactNode; sub?: ReactNode; back?: string; onBack?: () => void; steps?: { names: string[]; current: number }; right?: ReactNode }) {
   return (
     <header className="head">
       <div className="head-row">
@@ -54,7 +67,7 @@ export function Header({ title, sub, back, onBack, step, right }: { title: React
         </div>
         {right}
       </div>
-      {step && <Trail step={step} />}
+      {steps && <Steps names={steps.names} current={steps.current} />}
     </header>
   );
 }
@@ -111,22 +124,22 @@ export function Codes({ length, value, onChange, big, readOnly, digits = true, l
   );
 }
 
-export function Pick({ on, onClick, title, meta, lead, right, radio, disabled }: { on: boolean; onClick?: () => void; title: ReactNode; meta?: ReactNode; lead?: ReactNode; right?: ReactNode; radio?: boolean; disabled?: boolean }) {
+export function Pick({ on, onClick, title, meta, lead, right, radio, disabled, delay }: { on: boolean; onClick?: () => void; title: ReactNode; meta?: ReactNode; lead?: ReactNode; right?: ReactNode; radio?: boolean; disabled?: boolean; delay?: number }) {
   const aria = radio ? { role: 'radio' as const, 'aria-checked': on } : { 'aria-pressed': on };
   return (
-    <button type="button" className="pick rise" {...aria} onClick={onClick} disabled={disabled}>
+    <button type="button" className="pick rise" {...aria} onClick={onClick} disabled={disabled} style={delay !== undefined ? { animationDelay: `${delay}ms` } : undefined}>
       {lead}
       <span className="grow stack" style={{ gap: 0 }}>
         <strong>{title}</strong>
         {meta && <span className="small">{meta}</span>}
       </span>
       {right}
-      <span className="mark">{on && <Check size={20} />}</span>
+      <span className="mark">{on && <span className="pop" style={{ display: 'flex' }}><Check size={20} /></span>}</span>
     </button>
   );
 }
 
-export const Chip = ({ children, kind }: { children: ReactNode; kind?: 'plain' | 'sel' | 'pro' }) => <span className={`chip ${kind ?? ''}`}>{children}</span>;
+export const Chip = ({ children, kind }: { children: ReactNode; kind?: 'plain' | 'sel' | 'pro' | 'ok' }) => <span className={`chip ${kind ?? ''}`}>{children}</span>;
 export const Note = ({ children, ok }: { children: ReactNode; ok?: boolean }) => <div className={`note ${ok ? 'ok' : ''}`}>{ok && <Check />}<span>{children}</span></div>;
 export const Oops = ({ children }: { children: ReactNode }) => (children ? <div className="err" role="alert">{children}</div> : null);
 
@@ -171,7 +184,7 @@ export function Seg<T extends string>({ value, onChange, options }: { value: T; 
     <div className="seg" style={{ gridTemplateColumns: `repeat(${options.length}, minmax(0, 1fr))` }}>
       {options.map((o) =>
         o.locked ? (
-          <Link key={o.value} to="/pro" className="locked">{o.label}<Chip kind="pro">Pro</Chip></Link>
+          <button key={o.value} type="button" className="locked" onClick={openPro}>{o.label}<Chip kind="pro">Pro</Chip></button>
         ) : (
           <button key={o.value} aria-pressed={value === o.value} onClick={() => onChange(o.value)}>{o.label}</button>
         ),
@@ -249,10 +262,10 @@ export function ErrorScreen({ title, text, action }: { title: string; text: stri
   );
 }
 
-export function Person({ name, tag, right, onClick, to }: { name: string; tag?: string; right?: ReactNode; onClick?: () => void; to?: string }) {
+export function Person({ name, tag, right, onClick, to, pig }: { name: string; tag?: string; right?: ReactNode; onClick?: () => void; to?: string; pig?: string }) {
   const inner = (
     <>
-      <span className="avatar">{name[0]?.toUpperCase()}</span>
+      {pig ? <Pig avatar={pig} size={32} /> : <span className="avatar">{name[0]?.toUpperCase()}</span>}
       <span className="grow wrap" style={{ fontWeight: 700, fontSize: 15 }}>{name}{tag && <span className="small" style={{ fontWeight: 500 }}> {tag}</span>}</span>
       {right}
     </>

@@ -9,6 +9,7 @@ import { guestForToken, later, sendConfirmation, tellHost } from './mail';
 import { connectLink, telegramReady } from './telegram';
 import { type Loaded, load, lookupStart, summarise, tripMinutes } from './meetups';
 import { directionsUrl } from './places';
+import { mapView } from './crewmap';
 
 /**
  * Guests have no account. They are known by a device cookie set when they join,
@@ -78,6 +79,7 @@ async function guestView(c: C, L: Loaded, who: Row | null, dateChange: { replies
     name: L.m.name,
     telegramReady: telegramReady(c.get('deps')),
     hostName: host.name,
+    hostAvatar: ((await c.get('deps').db.query('select avatar from users where id = $1', [L.m.host_id]))[0]?.avatar as string | undefined) ?? 'chef',
     status: L.m.status,
     timeZone: L.m.time_zone,
     startsAt: L.m.starts_at ? new Date(L.m.starts_at).toISOString() : null,
@@ -105,7 +107,7 @@ async function guestView(c: C, L: Loaded, who: Row | null, dateChange: { replies
       email: who.email ? { address: maskEmail(who.email), confirmed: !!who.email_confirmed } : null,
       telegram: !!who.telegram_chat_id,
       id: who.id, name: who.name, rsvp: who.rsvp, rsvpIsDefault: who.rsvp_is_default, dates: who.dates, noDateWorks: who.no_date_works, categories: who.categories, place: who.place,
-      hasLocation: who.lat !== null, joinedLate: who.joined_late, canAmend: !!who.can_amend,
+      hasLocation: who.lat !== null, joinedLate: who.joined_late, canAmend: !!who.can_amend, showOnMap: !!who.show_on_map,
       pickedSetDate: s.setDate ? (who.dates as string[]).includes(s.setDate) : null,
     },
   };
@@ -160,6 +162,8 @@ guest.post('/:token/join', async (c) => {
     if (set.length) code = candidate;
   }
   if (!code) throw new Fail(409, 'taken', 'Someone just took that name. Pick another.');
+  // Just joined on this device: they can go back and change answers for the next 30 minutes without the code.
+  await db.query("update participants set amend_until = now() + interval '30 minutes' where id = $1", [id]);
   await rememberDevice(c, L, id);
   const fresh = (await load(db, { id: L.m.id }))!;
   return c.json({ code, meetup: await guestView(c, fresh, fresh.people.find((p) => p.id === id)!) });
@@ -224,6 +228,24 @@ guest.post('/:token/location', async (c) => {
     ['delete from place_times where participant_id = $1', [p.id]], // routed from the old start, so no longer true
   ]);
   await noteChange(c, L, p, 'location', 'New starting point');
+  return respond(c, L);
+});
+
+/** The crew map. Only for people who joined; nobody's exact start is shown unless they chose to share it. */
+guest.get('/:token/map', async (c) => {
+  const L = await open(c);
+  const p = await me(c, L);
+  const deps = c.get('deps');
+  await strike(deps.db, `map:${await clientKey(c)}`, 60, 10, 5);
+  const places = L.m.status === 'confirmed' ? L.places.filter((x) => x.id === L.m.chosen_place) : L.m.status === 'place_vote' ? L.places.filter((x) => x.shortlisted) : [];
+  return c.json({ map: await mapView(deps, L, p, places) });
+});
+/** Show my exact start and name on the crew map, or only a rough area. Always allowed, even after confirmation. */
+guest.post('/:token/map-visibility', async (c) => {
+  const L = await open(c);
+  const p = await me(c, L);
+  const { show } = await body(c, z.object({ show: z.boolean() }));
+  await c.get('deps').db.query('update participants set show_on_map = $2 where id = $1', [p.id, show]);
   return respond(c, L);
 });
 

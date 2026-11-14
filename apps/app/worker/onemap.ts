@@ -90,3 +90,42 @@ export async function onemapMatrix(deps: Deps, origins: readonly Point[], destin
   if (failures > pairs.length / 2) throw new Error('OneMap routing failed');
   return out;
 }
+
+/** Google's encoded polyline (precision 5), as OneMap returns route shapes. Gives [lng, lat] pairs. */
+export function decodePolyline(s: string): [number, number][] {
+  const out: [number, number][] = [];
+  let i = 0, lat = 0, lng = 0;
+  while (i < s.length) {
+    for (const which of [0, 1]) {
+      let shift = 0, result = 0, b: number;
+      do { b = s.charCodeAt(i++) - 63; result |= (b & 0x1f) << shift; shift += 5; } while (b >= 0x20 && i <= s.length);
+      const d = result & 1 ? ~(result >> 1) : result >> 1;
+      if (which === 0) lat += d; else lng += d;
+    }
+    out.push([lng / 1e5, lat / 1e5]);
+  }
+  return out;
+}
+
+/** The shape of one trip, for the crew map. Null when OneMap can't route it. */
+export async function onemapRouteLine(deps: Deps, from: Point, to: Point, mode: TravelMode): Promise<[number, number][] | null> {
+  if (!deps.env.ONEMAP_EMAIL || !deps.env.ONEMAP_PASSWORD) return null;
+  if (await isPaused(deps.db, 'onemap', deps.now())) return null;
+  const auth = await token(deps);
+  const params = new URLSearchParams({ start: `${from.lat},${from.lng}`, end: `${to.lat},${to.lng}`, routeType: ROUTE[mode] });
+  if (mode === 'transit') {
+    const when = sgDateTime(deps.now());
+    params.set('date', when.date); params.set('time', when.time); params.set('mode', 'TRANSIT'); params.set('maxWalkDistance', '1000'); params.set('numItineraries', '1');
+  }
+  const res = await deps.fetch(`${BASE}/api/public/routingsvc/route?${params}`, { headers: { authorization: auth }, signal: AbortSignal.timeout(10000) });
+  if (!res.ok) {
+    if (res.status === 401) forgetOneMapToken();
+    if (isRefusal(res.status)) await pause(deps.db, 'onemap', deps.now());
+    return null;
+  }
+  const data = (await res.json()) as { route_geometry?: string; plan?: { itineraries?: Array<{ legs?: Array<{ legGeometry?: { points?: string } }> }> } };
+  if (mode !== 'transit' && data.route_geometry) return decodePolyline(data.route_geometry);
+  const legs = data.plan?.itineraries?.[0]?.legs ?? [];
+  const line = legs.flatMap((l) => (l.legGeometry?.points ? decodePolyline(l.legGeometry.points) : []));
+  return line.length >= 2 ? line : null;
+}

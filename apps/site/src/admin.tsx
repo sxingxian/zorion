@@ -1,5 +1,5 @@
 import { type ReactElement, type ReactNode, cloneElement, createContext, useCallback, useContext, useEffect, useId, useMemo, useRef, useState } from 'react';
-import { ART, ICONS } from '@zorion/core';
+import { ART, AVATAR_ART, AVATAR_VIEWBOX, type Avatar, ICONS, SG_TILE_CHOICES, TILE_SOURCES, type TileSourceKey, WORLD_TILE_CHOICES } from '@zorion/core';
 import { ErrorPage } from './errors';
 
 type R = Record<string, any>;
@@ -21,10 +21,11 @@ function useLoad<T>(path: string): [T | null, () => void, string | null] {
 const date = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '—');
 const Toggle = ({ on, label, onChange, disabled }: { on: boolean; label: string; onChange: (v: boolean) => void; disabled?: boolean }) => <button className="toggle" role="switch" aria-checked={on} aria-label={label} disabled={disabled} onClick={() => onChange(!on)}><i /></button>;
 
-const PAGES: Array<[path: string, label: string]> = [
-  ['/admin', 'Overview'], ['/admin/plans', 'Plans'], ['/admin/payments', 'Payments'], ['/admin/categories', 'Categories'],
-  ['/admin/ads', 'Ads'], ['/admin/telegram', 'Telegram'], ['/admin/email', 'Email'], ['/admin/users', 'Users'], ['/admin/access', 'Admins'],
+const NAV: Array<[group: string, pages: Array<[path: string, label: string]>]> = [
+  ['Monitor', [['/admin', 'Overview'], ['/admin/activity', 'Activity'], ['/admin/users', 'Users']]],
+  ['Set up', [['/admin/plans', 'Plans'], ['/admin/payments', 'Payments'], ['/admin/categories', 'Categories'], ['/admin/maps', 'Maps'], ['/admin/ads', 'Ads'], ['/admin/email', 'Email'], ['/admin/telegram', 'Telegram'], ['/admin/access', 'Admins']]],
 ];
+const PAGES = NAV.flatMap(([, pages]) => pages);
 
 export default function AdminApp({ path, go }: { path: string; go: (to: string) => void }) {
   const [admin, setAdmin] = useState<AdminUser | null | undefined>(undefined);
@@ -71,6 +72,8 @@ export default function AdminApp({ path, go }: { path: string; go: (to: string) 
     : path === '/admin/plans' ? <PlansPage admin={admin} />
     : path === '/admin/payments' ? <Payments admin={admin} />
     : path === '/admin/categories' ? <Categories admin={admin} />
+    : path === '/admin/maps' ? <Maps admin={admin} />
+    : path === '/admin/activity' ? <Activity />
     : path === '/admin/ads' ? <Ads admin={admin} propose={propose} />
     : path === '/admin/telegram' ? <TelegramPage admin={admin} />
     : path === '/admin/email' ? <EmailPage admin={admin} />
@@ -85,7 +88,7 @@ export default function AdminApp({ path, go }: { path: string; go: (to: string) 
             <span className="row"><svg viewBox="-6 -14 132 126" width={34} height={32} aria-hidden="true" dangerouslySetInnerHTML={{ __html: ART.headChefRim! }} /><span className="display" style={{ fontSize: 20 }}>Zorion</span></span>
             <button type="button" className="menu-btn" aria-expanded={menu} aria-controls="admin-nav" onClick={() => setMenu(!menu)}>{menu ? 'Close' : current}<svg viewBox="0 0 24 24" width={18} height={18} aria-hidden="true"><path d={menu ? 'M6 15l6-6 6 6' : 'M6 9l6 6 6-6'} fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" /></svg></button>
           </div>
-          <nav id="admin-nav" aria-label="Admin">{PAGES.map(([to, label]) => <a key={to} href={to} aria-current={path === to ? 'page' : undefined} onClick={(e) => { e.preventDefault(); kit.go(to); }}>{label}</a>)}</nav>
+          <nav id="admin-nav" aria-label="Admin">{NAV.map(([group, pages]) => <div key={group} className="navgroup"><span className="navh">{group}</span>{pages.map(([to, label]) => <a key={to} href={to} aria-current={path === to ? 'page' : undefined} onClick={(e) => { e.preventDefault(); kit.go(to); }}>{label}</a>)}</div>)}</nav>
           <div className="who"><strong style={{ overflowWrap: 'anywhere' }}>{admin.email}</strong><small>{admin.role === 'super' ? 'Full access' : 'Support'}</small>
             <button className="btn link light" onClick={() => call('POST', '/sign-out').then(refresh)}>Sign out</button></div>
         </aside>
@@ -361,37 +364,114 @@ function useRun(): [(fn: () => Promise<unknown>, done?: string) => Promise<boole
 }
 
 // ---------- overview ----------
+const STAGES: Array<[string, string]> = [['draft', 'Setting up'], ['date_vote', 'Date vote'], ['voting', 'Food vote'], ['places', 'Picking places'], ['place_vote', 'Place vote'], ['confirmed', 'Confirmed']];
 function Overview() {
   const { go } = useKit();
-  const [d, , error] = useLoad<R>('/overview');
-  const [pay] = useLoad<R>('/payments');
-  const [tg] = useLoad<R>('/telegram');
-  const [mail] = useLoad<R>('/email');
+  const [days, setDays] = useState<7 | 30>(7);
+  const [d, , error] = useLoad<R>(`/overview?days=${days}`);
+  const [acc] = useLoad<R>('/access');
   if (!d) return <Loading title="Overview" error={error} />;
+  const p = d.period as R;
+  const u = d.users as R;
+  const sv = d.services as R;
   const meetups = d.meetups as Record<string, number>;
-  const live = Object.entries(meetups).filter(([k]) => k !== 'ended').reduce((s, [, n]) => s + n, 0);
-  const mailFailing = mail?.last?.ok === false;
-  const setup: Array<[string, 'ok' | 'off' | 'bad', string, string]> = [
-    ['Payments', pay?.key?.set && pay?.webhook?.set ? 'ok' : 'off', pay?.key?.set && pay?.webhook?.set ? 'Ready' : 'Not connected', '/admin/payments'],
-    ['Email', mailFailing ? 'bad' : mail?.key?.set ? 'ok' : 'off', mailFailing ? 'Last send failed' : mail?.key?.set ? 'Ready' : 'Not connected', '/admin/email'],
-    ['Telegram', tg?.token?.set ? 'ok' : 'off', tg?.token?.set ? 'Ready' : 'Not connected', '/admin/telegram'],
+  const change = p.made_before ? Math.round(((p.made - p.made_before) / p.made_before) * 100) : null;
+  const perDay = d.perDay as Array<{ day: string; n: number }>;
+  const top = Math.max(1, ...perDay.map((x) => x.n));
+  const stageMax = Math.max(1, ...STAGES.map(([k]) => meetups[k] ?? 0));
+  const usage = ((d.usage as R).services as R[]);
+  const use = (k: string) => usage.find((x) => x.key === k);
+  const mailFailed = sv.emailLast && sv.emailLast.ok === false;
+  const link = (to: string, label: string) => <a href={to} onClick={(e) => { e.preventDefault(); go(to); }}>{label}</a>;
+  const needs: Array<[string, string, string]> = [
+    ...(d.pendingApprovals > 0 ? [[`${d.pendingApprovals} waiting for approval`, 'Review', '/admin/access'] as [string, string, string]] : []),
+    ...(mailFailed ? [['Last email failed', 'Fix', '/admin/email'] as [string, string, string]] : []),
+    ...(!sv.stripe ? [['Payments not connected', 'Connect', '/admin/payments'] as [string, string, string]] : []),
+    ...(!sv.email ? [['Email not connected', 'Connect', '/admin/email'] as [string, string, string]] : []),
   ];
+  const svc = (name: string, on: boolean, detail: string, to: string, kind: 'ok' | 'off' | 'bad' | 'pink' = on ? 'ok' : 'off') => <div className="line" key={name}><a href={to} onClick={(e) => { e.preventDefault(); go(to); }}><strong>{name}</strong></a><span className="row nowrap"><span className="sub">{detail}</span><Status kind={kind}>{on ? 'On' : 'Off'}</Status></span></div>;
   return (
     <>
-      <Head title="Overview" />
-      <div className="cards stats">
-        <section><span className="sub">Hosts</span><span className="stat">{d.users.hosts}</span><span className="sub">{d.users.pro} on Pro · {d.users.suspended} suspended</span></section>
-        <section><span className="sub">Meetups in progress</span><span className="stat">{live}</span><span className="sub">{meetups.confirmed ?? 0} confirmed · {meetups.ended ?? 0} ended</span></section>
-        <section><span className="sub">Waiting for a second admin</span><span className="stat">{d.pendingApprovals}</span>{d.pendingApprovals > 0 && <a href="/admin/access" onClick={(e) => { e.preventDefault(); go('/admin/access'); }}>Review</a>}</section>
+      <Head title="Overview"><div className="chips" role="group" aria-label="Period">{([7, 30] as const).map((n) => <button key={n} type="button" aria-pressed={days === n} onClick={() => setDays(n)}>{n} days</button>)}</div></Head>
+      <div className="kpis">
+        <section><span className="sub">Hosts</span><span className="stat">{u.hosts}</span><span className="sub">+{u.new_hosts} in {days} days</span></section>
+        <section><span className="sub">Pro</span><span className="stat">{u.pro}</span><span className="sub">{u.hosts ? Math.round((u.pro / u.hosts) * 100) : 0}% of hosts</span></section>
+        <section><span className="sub">Meetups made</span><span className="stat">{p.made}</span><span className="sub">{change === null ? `in ${days} days` : `${change >= 0 ? '+' : ''}${change}% on the ${days} before`}</span></section>
+        <section><span className="sub">Confirmed</span><span className="stat">{p.confirmed}</span><span className="sub">{p.made ? Math.round((p.confirmed / p.made) * 100) : 0}% of meetups made</span></section>
+        <section><span className="sub">Guests joined</span><span className="stat">{p.guests}</span><span className="sub">{p.made ? (p.guests / p.made).toFixed(1) : '0'} per meetup</span></section>
+        <section><span className="sub">Suspended</span><span className="stat">{u.suspended}</span><span className="sub">hosts</span></section>
+      </div>
+      <div className="cards wide-left">
+        <section>
+          <div className="line flat"><h2>Meetups made per day</h2><span className="sub">Last 30 days</span></div>
+          <div className="chart" role="img" aria-label={`Meetups made per day, last 30 days. Most in a day: ${top}.`}>{perDay.map((x, i) => <i key={x.day} title={`${x.day}: ${x.n}`} style={{ height: `${Math.max(2, (x.n / top) * 100)}%`, animationDelay: `${i * 12}ms` }} className={i >= 30 - days ? 'recent' : ''} />)}</div>
+        </section>
+        <section>
+          <h2>Meetups by stage</h2>
+          {STAGES.map(([k, l]) => <div className="hbar" key={k}><span>{l}</span><i><b style={{ width: `${((meetups[k] ?? 0) / stageMax) * 100}%` }} /></i><strong>{meetups[k] ?? 0}</strong></div>)}
+        </section>
       </div>
       <div className="cards">
         <section>
-          <h2>Setup</h2>
-          {setup.map(([label, kind, text, to]) => <div className="line" key={label}><a href={to} onClick={(e) => { e.preventDefault(); go(to); }}><strong>{label}</strong></a><Status kind={kind}>{text}</Status></div>)}
+          <h2>Services</h2>
+          {svc('Payments', !!sv.stripe, sv.stripe ? (sv.stripeWebhook ? 'Webhook connected' : 'Webhook missing') : 'Not connected', '/admin/payments')}
+          {svc('Email', !!sv.email, mailFailed ? 'Last send failed' : sv.emailLast?.at ? `Last sent ${ago(sv.emailLast.at)}` : 'No sends yet', '/admin/email', mailFailed ? 'bad' : sv.email ? 'ok' : 'off')}
+          {svc('Telegram', !!sv.telegram, sv.telegram ? 'Bot connected' : 'Not connected', '/admin/telegram')}
+          {svc('Google', !!sv.google, sv.google ? `${use('places_text')?.used ?? 0} of ${use('places_text')?.limit ?? '—'} searches` : 'Not connected', '/admin/maps')}
+          {svc('Geoapify', !!sv.geoapify, sv.geoapify ? `${use('geoapify')?.used ?? 0} of ${use('geoapify')?.free ?? 3000} credits today` : 'Not connected', '/admin/maps')}
+          {svc('OneMap', !!sv.onemap, sv.onemap ? 'Trip times and transit' : 'Not connected', '/admin/maps')}
         </section>
-        <section><h2>Meetups by stage</h2>{[['draft', 'Draft'], ['date_vote', 'Date vote'], ['voting', 'Food vote'], ['places', 'Picking places'], ['place_vote', 'Place vote'], ['confirmed', 'Confirmed'], ['ended', 'Ended']].map(([k, l]) => <div className="line" key={k}><span>{l}</span><strong>{meetups[k!] ?? 0}</strong></div>)}</section>
+        <section>
+          <div className="line flat"><h2>Needs you</h2>{needs.length > 0 && <Status kind="bad">{needs.length}</Status>}</div>
+          {needs.length === 0 ? <span className="sub">Nothing right now.</span> : needs.map(([t, a, to]) => <div className="line" key={t}><strong>{t}</strong>{link(to, a)}</div>)}
+          <div className="line flat" style={{ marginTop: 12 }}><h2>Recent activity</h2>{link('/admin/activity', 'See all')}</div>
+          {((d.recent as R[]) ?? []).length === 0 ? <span className="sub">No activity yet.</span> : (d.recent as R[]).map((l) => <div className="log" key={l.id}><span className="sub">{stamp(l.created_at)}</span><span><strong>{describe(l, (acc?.admins as R[]) ?? [])}</strong><br /><span className="sub">{l.email ?? 'System'}</span></span></div>)}
+        </section>
       </div>
     </>
+  );
+}
+
+// ---------- activity: the whole log, 25 a page ----------
+const KINDS: Array<[string, string]> = [['', 'All'], ['settings', 'Settings'], ['keys', 'Keys'], ['plans', 'Plans'], ['users', 'Users'], ['admins', 'Admins'], ['signin', 'Sign-in']];
+function Activity() {
+  const [typed, setTyped] = useState('');
+  const [q, setQ] = useState('');
+  const [kind, setKind] = useState('');
+  const [page, setPage] = useState(1);
+  useEffect(() => { const t = setTimeout(() => { setQ(typed.trim()); setPage(1); }, 300); return () => clearTimeout(t); }, [typed]);
+  const [d, , error] = useLoad<R>(`/activity?page=${page}&kind=${kind}&q=${encodeURIComponent(q)}`);
+  const [acc] = useLoad<R>('/access');
+  const rows = (d?.rows as R[] | undefined) ?? null;
+  return (
+    <>
+      <Head title="Activity"><input className="input" style={{ width: 280 }} type="search" placeholder="Search by admin or action" aria-label="Search activity" value={typed} maxLength={80} onChange={(e) => setTyped(e.target.value)} /></Head>
+      {error && <div className="err" role="alert">{error}</div>}
+      <div className="chips" role="group" aria-label="Show">{KINDS.map(([v, l]) => <button key={v} type="button" aria-pressed={kind === v} onClick={() => { setKind(v); setPage(1); }}>{l}</button>)}</div>
+      <section className="tablebox">
+        <div className="scrollx"><table className="tbl">
+          <thead><tr><th>When</th><th>Admin</th><th>What</th></tr></thead>
+          <tbody>{rows === null ? <tr><td colSpan={3} className="sub">Loading…</td></tr> : rows.length === 0 ? <tr><td colSpan={3} className="sub">Nothing matches.</td></tr> : rows.map((l) => <tr key={l.id}><td className="sub nowrap">{stamp(l.created_at)}</td><td>{l.email ?? 'System'}</td><td><strong>{describe(l, (acc?.admins as R[]) ?? [])}</strong></td></tr>)}</tbody>
+        </table></div>
+        {d && <Pager page={d.page} total={d.total} size={d.pageSize} onPage={setPage} />}
+      </section>
+    </>
+  );
+}
+
+/** "1–25 of 312" and Previous / page numbers / Next. */
+function Pager({ page, total, size, onPage }: { page: number; total: number; size: number; onPage: (p: number) => void }) {
+  const pages = Math.max(1, Math.ceil(total / size));
+  const nums = [...new Set([1, page - 1, page, page + 1, pages].filter((n) => n >= 1 && n <= pages))].sort((a, b) => a - b);
+  return (
+    <div className="pager">
+      <span className="sub">{total === 0 ? '0' : `${(page - 1) * size + 1}–${Math.min(page * size, total)}`} of {total}</span>
+      <span className="row">
+        <button className="btn" disabled={page <= 1} onClick={() => onPage(page - 1)}>Previous</button>
+        {nums.map((n, i) => <span key={n} className="row" style={{ gap: 4 }}>{i > 0 && n - nums[i - 1]! > 1 && <span className="sub">…</span>}<button className={`btn${n === page ? ' solid' : ''}`} aria-current={n === page ? 'page' : undefined} onClick={() => onPage(n)}>{n}</button></span>)}
+        <button className="btn" disabled={page >= pages} onClick={() => onPage(page + 1)}>Next</button>
+      </span>
+    </div>
   );
 }
 
@@ -469,7 +549,7 @@ function PlansPage({ admin }: { admin: AdminUser }) {
             <div className="frow head"><span /><span className="c-free">Free</span><span className="c-pro">Pro</span></div>
             {ROWS.map(([label, key, kind]) => <div className="frow" key={key}><span>{label}</span><span className="c-free">{cell('free', label, key, kind)}</span><span className="c-pro">{cell('pro', label, key, kind)}</span></div>)}
           </div>
-          {transit && <div className="warn"><span>Transit times need OneMap or Google routes, which are off. Until then they're estimated.</span><a href="/admin/categories" onClick={(e) => { e.preventDefault(); go('/admin/categories'); }}>Turn on in Categories</a></div>}
+          {transit && <div className="warn"><span>Transit times need OneMap or Google routes, which are off. Until then they're estimated.</span><a href="/admin/maps" onClick={(e) => { e.preventDefault(); go('/admin/maps'); }}>Turn on in Maps</a></div>}
         </section>
       </div>
       {err && <div className="err" role="alert">{err}</div>}
@@ -767,7 +847,6 @@ function GoogleUsage({ usage, onChange }: { usage: R; onChange: () => void }) {
 function Categories({ admin }: { admin: AdminUser }) {
   const [d, reload, error] = useLoad<R>('/categories');
   const [icons] = useLoad<{ icons: string[] }>('/icons');
-  const [maps, reloadMaps] = useLoad<R>('/maps');
   const [form, setForm] = useState<CatForm | null>(null);
   const [nameErr, setNameErr] = useState<string | null>(null);
   const [sure, setSure] = useState(false);
@@ -843,39 +922,85 @@ function Categories({ admin }: { admin: AdminUser }) {
           </section>
         ) : (
           <section>
-            <h2>Search</h2>
-            <Field label="Places come from" hint="Zorion starts here, then moves on when a service's free allowance runs out or it fails.">
-              <select className="input" value={d.settings.places_provider} disabled={!edit} onChange={(e) => setting({ places_provider: e.target.value }, 'Saved')}>
-                <option value="osm">OpenStreetMap (free)</option><option value="geoapify">Geoapify (free)</option><option value="google">Google Places</option>
-              </select>
-            </Field>
-            <Field label="Trip times come from">
-              <select className="input" value={d.settings.routing_provider ?? 'estimate'} disabled={!edit} onChange={(e) => setting({ routing_provider: e.target.value }, 'Saved')}>
-                <option value="estimate">Zorion's estimate (nothing leaves Zorion)</option><option value="onemap">OneMap (free, Singapore, with transit)</option><option value="ors">openrouteservice (free)</option><option value="geoapify">Geoapify (free)</option><option value="osrm">OpenStreetMap routing (free)</option><option value="google">Google routes</option>
-              </select>
-            </Field>
-            {maps && (() => {
-              const order = ladders(d.settings.places_provider ?? 'osm', d.settings.routing_provider ?? 'estimate', maps);
-              return (
-                <div className="order" aria-label="Order Zorion tries">
-                  <div className="line flat"><span className="sub">Places</span><span>{order.places}</span></div>
-                  <div className="line flat"><span className="sub">Starting places</span><span>{order.lookup}</span></div>
-                  <div className="line flat"><span className="sub">Walking, cycling</span><span>{order.walk}</span></div>
-                  <div className="line flat"><span className="sub">Transit</span><span>{order.transit}</span></div>
-                </div>
-              );
-            })()}
-            {edit && maps && (d.settings.places_provider === 'google' || d.settings.routing_provider === 'google' || (maps.google as R | undefined)?.set) && <MapKey service="google" maps={maps} onChange={reloadMaps} note="Until a key is connected, Zorion uses the free services." />}
-            {edit && maps && <>
-              <h3 className="sub-h">Free services</h3>
-              <p className="sub">Each one you connect is another step before Zorion falls back to its own estimate. They receive starting points and places, never names.</p>
-              {(['onemap', 'geoapify', 'ors'] as MapService[]).map((k) => <MapKey key={k} service={k} maps={maps} onChange={reloadMaps} note={(d.settings.routing_provider === k || d.settings.places_provider === k) ? 'Until it is connected, Zorion uses the next service.' : undefined} />)}
-            </>}
+            <h2>Names</h2>
             <Field label="Blocked words in names" hint="One per line. Hosts can't use these in meetup or food option names."><textarea className="input" rows={5} disabled={!edit} value={blocked ?? ''} onChange={(e) => setBlocked(e.target.value)} /></Field>
           </section>
         )}
       </div>
       {edit && <SaveBar dirty={blockedDirty} busy={busy} onDiscard={discardBlocked} onSave={() => setting({ blocked_words: (blocked ?? '').split('\n').map((w) => w.trim()).filter((w) => w.length > 1) }, 'Saved')} />}
+    </>
+  );
+}
+
+// ---------- maps: where places, trip times and map tiles come from ----------
+function Maps({ admin }: { admin: AdminUser }) {
+  const [d, reload, error] = useLoad<R>('/categories');
+  const [maps, reloadMaps] = useLoad<R>('/maps');
+  const [run, , err] = useRun();
+  if (!d) return <Loading title="Maps" error={error} />;
+  const edit = admin.role === 'super';
+  const st = d.settings as R;
+  const setting = (body: R) => run(async () => { await call('PUT', '/settings', body); reload(); }, 'Saved');
+  const tilesSg = (st.map_tiles_sg ?? 'onemap') as TileSourceKey;
+  const tilesWorld = (st.map_tiles_world ?? 'openfreemap') as TileSourceKey;
+  const backup = ((st.map_tiles_backup ?? ['openfreemap', 'versatiles']) as TileSourceKey[]);
+  const move = (k: TileSourceKey, by: number) => { const list = [...backup]; const i = list.indexOf(k); const j = i + by; if (j < 0 || j >= list.length) return; [list[i], list[j]] = [list[j]!, list[i]!]; setting({ map_tiles_backup: list }); };
+  const tileOpt = (name: string, value: TileSourceKey, current: TileSourceKey, key: string) => (
+    <label key={value} className={`opt${current === value ? ' on' : ''}`}>
+      <input type="radio" name={key} checked={current === value} disabled={!edit} onChange={() => setting({ [key]: value })} />
+      <span><strong>{TILE_SOURCES[value].name}</strong><br /><span className="sub">{TILE_SOURCES[value].note}</span></span>
+    </label>
+  );
+  return (
+    <>
+      <Head title="Maps" />
+      {err && <div className="err" role="alert">{err}</div>}
+      <div className="cards wide-left">
+        <section>
+          <h2>Places and trip times</h2>
+          <Field label="Places come from" hint="Zorion starts here, then moves on when a service's free allowance runs out or it fails.">
+            <select className="input" value={st.places_provider} disabled={!edit} onChange={(e) => setting({ places_provider: e.target.value })}>
+              <option value="osm">OpenStreetMap (free)</option><option value="geoapify">Geoapify (free)</option><option value="google">Google Places</option>
+            </select>
+          </Field>
+          <Field label="Trip times come from">
+            <select className="input" value={st.routing_provider ?? 'estimate'} disabled={!edit} onChange={(e) => setting({ routing_provider: e.target.value })}>
+              <option value="estimate">Zorion's estimate (nothing leaves Zorion)</option><option value="onemap">OneMap (free, Singapore, with transit)</option><option value="ors">openrouteservice (free)</option><option value="geoapify">Geoapify (free)</option><option value="osrm">OpenStreetMap routing (free)</option><option value="google">Google routes</option>
+            </select>
+          </Field>
+          {maps && (() => {
+            const order = ladders(st.places_provider ?? 'osm', st.routing_provider ?? 'estimate', maps);
+            return (
+              <div className="order" aria-label="Order Zorion tries">
+                <div className="line flat"><span className="sub">Places</span><span>{order.places}</span></div>
+                <div className="line flat"><span className="sub">Starting places</span><span>{order.lookup}</span></div>
+                <div className="line flat"><span className="sub">Walking, cycling</span><span>{order.walk}</span></div>
+                <div className="line flat"><span className="sub">Transit</span><span>{order.transit}</span></div>
+              </div>
+            );
+          })()}
+          {edit && maps && (st.places_provider === 'google' || st.routing_provider === 'google' || (maps.google as R | undefined)?.set) && <MapKey service="google" maps={maps} onChange={reloadMaps} note="Until a key is connected, Zorion uses the free services." />}
+          {edit && maps && <>
+            <h3 className="sub-h">Free services</h3>
+            <p className="sub">Each one you connect is another step before Zorion falls back to its own estimate. They get starting points and places, never names.</p>
+            {(['onemap', 'geoapify', 'ors'] as MapService[]).map((k) => <MapKey key={k} service={k} maps={maps} onChange={reloadMaps} note={(st.routing_provider === k || st.places_provider === k) ? 'Until it is connected, Zorion uses the next service.' : undefined} />)}
+          </>}
+        </section>
+        <section>
+          <h2>Map tiles</h2>
+          <p className="sub">Loaded by each person's browser straight from the service. Free, no key. Changes apply straight away.</p>
+          <div className="field"><span>In Singapore</span>{SG_TILE_CHOICES.map((k) => tileOpt(k === 'onemap' ? 'OneMap' : 'OpenFreeMap', k, tilesSg, 'map_tiles_sg'))}</div>
+          <div className="field"><span>Everywhere else</span>{WORLD_TILE_CHOICES.map((k) => tileOpt(TILE_SOURCES[k].name, k, tilesWorld, 'map_tiles_world'))}</div>
+          <div className="field"><span>If tiles fail to load, try</span>
+            <div className="order">{backup.map((k, i) => <div className="line flat" key={k}><span className="row"><span className="numb">{i + 1}</span><strong>{TILE_SOURCES[k].name}</strong></span>{edit && <span className="row"><button className="btn" aria-label={`Move ${TILE_SOURCES[k].name} up`} disabled={i === 0} onClick={() => move(k, -1)}>Up</button><button className="btn" aria-label={`Move ${TILE_SOURCES[k].name} down`} disabled={i === backup.length - 1} onClick={() => move(k, 1)}>Down</button></span>}</div>)}</div>
+          </div>
+          <h3 className="sub-h">Look</h3>
+          <div className="line"><span>Start in 3D</span><Toggle on={st.map_start_3d !== false} label="Start in 3D" disabled={!edit} onChange={(v) => setting({ map_start_3d: v })} /></div>
+          <div className="line"><span>3D buildings</span><Toggle on={st.map_buildings !== false} label="3D buildings" disabled={!edit} onChange={(v) => setting({ map_buildings: v })} /></div>
+          <div className="line"><span>Animate routes</span><Toggle on={st.map_animate !== false} label="Animate routes" disabled={!edit} onChange={(v) => setting({ map_animate: v })} /></div>
+          <p className="sub">People who turn on reduced motion on their device never see the animation.</p>
+        </section>
+      </div>
     </>
   );
 }
@@ -946,7 +1071,9 @@ function Users({ admin, propose }: { admin: AdminUser; propose: (action: string,
   const [q, setQ] = useState('');
   const [plan, setPlan] = useState('');
   useEffect(() => { const t = setTimeout(() => setQ(typed.trim()), 300); return () => clearTimeout(t); }, [typed]);
-  const [d, reload, error] = useLoad<R>(`/users?q=${encodeURIComponent(q)}&plan=${plan}`);
+  const [page, setPage] = useState(1);
+  useEffect(() => setPage(1), [q, plan]);
+  const [d, reload, error] = useLoad<R>(`/users?q=${encodeURIComponent(q)}&plan=${plan}&page=${page}`);
   const [sel, setSel] = useState<R | null>(null);
   const [sure, setSure] = useState<'suspend' | 'delete' | null>(null);
   useEffect(() => setSure(null), [sel]);
@@ -955,21 +1082,29 @@ function Users({ admin, propose }: { admin: AdminUser; propose: (action: string,
   const users = (d?.users as R[] | undefined) ?? null;
   return (
     <>
-      <Head title="Users"><input className="input" style={{ width: 260 }} type="search" placeholder="Search by email" aria-label="Search hosts" value={typed} maxLength={80} onChange={(e) => setTyped(e.target.value)} /></Head>
+      <Head title="Users"><input className="input" style={{ width: 280 }} type="search" placeholder="Search by name or email" aria-label="Search hosts" value={typed} maxLength={80} onChange={(e) => setTyped(e.target.value)} /></Head>
       {(error || err) && <div className="err" role="alert">{error ?? err}</div>}
-      <div className="cards split">
+      <div className={`cards ${sel ? 'wide-left' : ''}`}>
         <section>
           <div className="chips" role="group" aria-label="Show">{[['', 'All'], ['free', 'Free'], ['pro', 'Pro'], ['suspended', 'Suspended']].map(([v, l]) => <button key={v} type="button" aria-pressed={plan === v} onClick={() => setPlan(v!)}>{l}</button>)}</div>
-          {users === null ? <span className="sub">Loading…</span> : users.length === 0 ? <span className="sub">{q || plan ? 'No hosts match.' : 'No hosts yet.'}</span> : users.map((u) => (
-            <button type="button" key={u.id} className={`pick${sel?.id === u.id ? ' on' : ''}`} onClick={() => setSel(u)}>
-              <span><strong>{u.email}</strong><br /><span className="sub">{u.meetups} meetups · joined {date(u.created_at)}</span></span>
-              {u.status === 'suspended' ? <Status kind="bad">Suspended</Status> : u.plan === 'pro' ? <Status kind="pink">Pro</Status> : <Status kind="off">Free</Status>}
-            </button>
-          ))}
+          {users === null ? <span className="sub">Loading…</span> : users.length === 0 ? <span className="sub">{q || plan ? 'No hosts match.' : 'No hosts yet.'}</span> : (
+            <div className="scrollx"><table className="tbl">
+              <thead><tr><th>Host</th><th>Plan</th><th>Meetups</th><th>Joined</th><th>Last active</th></tr></thead>
+              <tbody>{users.map((u) => (
+                <tr key={u.id} className={sel?.id === u.id ? 'on' : ''} onClick={() => setSel(u)}>
+                  <td><button type="button" className="rowbtn" onClick={() => setSel(u)}><span className="pigdot" dangerouslySetInnerHTML={{ __html: `<svg viewBox="${AVATAR_VIEWBOX}" width="26" height="26">${AVATAR_ART[(u.avatar as Avatar) in AVATAR_ART ? (u.avatar as Avatar) : 'chef']}</svg>` }} /><span><strong>{u.display_name}</strong><br /><span className="sub">{u.email}</span></span></button></td>
+                  <td>{u.status === 'suspended' ? <Status kind="bad">Suspended</Status> : u.plan === 'pro' ? <Status kind="pink">Pro</Status> : <Status kind="off">Free</Status>}</td>
+                  <td>{u.meetups}</td><td className="sub nowrap">{date(u.created_at)}</td><td className="sub nowrap">{ago(u.last_sign_in_at)}</td>
+                </tr>
+              ))}</tbody>
+            </table></div>
+          )}
+          {d && <Pager page={d.page} total={d.total} size={d.pageSize} onPage={setPage} />}
           {admin.role !== 'super' && <span className="sub">Emails are hidden for support admins.</span>}
         </section>
         {sel && <section>
-          <h2 style={{ overflowWrap: 'anywhere' }}>{sel.email}</h2>
+          <div className="line flat"><h2 style={{ overflowWrap: 'anywhere' }}>{sel.display_name}</h2><button className="btn link" onClick={() => setSel(null)}>Close</button></div>
+          <div className="line"><span className="sub">Email</span><strong style={{ overflowWrap: 'anywhere' }}>{sel.email}</strong></div>
           <div className="line"><span className="sub">Plan</span><strong>{sel.plan === 'pro' ? 'Pro' : 'Free'}</strong></div>
           <div className="line"><span className="sub">Meetups hosted</span><strong>{sel.meetups}</strong></div>
           <div className="line"><span className="sub">Last sign-in</span><strong>{date(sel.last_sign_in_at)}</strong></div>
@@ -1022,6 +1157,12 @@ function describe(l: R, admins: R[]): string {
         if (l.target === 'places_provider') return `Changed places to ${PLACES[detail.value] ?? detail.value}`;
         if (l.target === 'routing_provider') return `Changed trip times to ${ROUTES[detail.value] ?? detail.value}`;
         if (l.target === 'blocked_words') return 'Changed blocked words';
+        if (l.target === 'map_tiles_sg') return `Set Singapore map tiles to ${TILE_SOURCES[detail.value as TileSourceKey]?.name ?? detail.value}`;
+        if (l.target === 'map_tiles_world') return `Set map tiles to ${TILE_SOURCES[detail.value as TileSourceKey]?.name ?? detail.value}`;
+        if (l.target === 'map_tiles_backup') return 'Changed the backup map tiles';
+        if (l.target === 'map_start_3d') return detail.value ? 'Maps start in 3D' : 'Maps start flat';
+        if (l.target === 'map_buildings') return detail.value ? 'Turned 3D buildings on' : 'Turned 3D buildings off';
+        if (l.target === 'map_animate') return detail.value ? 'Turned route animation on' : 'Turned route animation off';
         if (l.target === 'google_budget') return detail.value === 'paid' ? 'Set Google to keep running past the free allowance' : detail.value === '100' ? 'Set Google to switch to free services when the free allowance is used up' : `Set Google to switch to free services at ${detail.value}% of the free allowance`;
         return 'Changed a setting';
       case 'admin.invite': return `Invited ${l.target} (${detail.role === 'super' ? 'full access' : 'support'})`;
@@ -1044,7 +1185,7 @@ function describe(l: R, admins: R[]): string {
 }
 
 function Access({ admin }: { admin: AdminUser }) {
-  const { confirm, toast } = useKit();
+  const { confirm, toast, go } = useKit();
   const [d, reload, error] = useLoad<R>('/access');
   const [ap, reloadAp] = useLoad<R>('/approvals');
   const [inviting, setInviting] = useState(false);
@@ -1086,8 +1227,8 @@ function Access({ admin }: { admin: AdminUser }) {
           {link && <div className="field"><span>Invite link for {invite.email}</span><span className="hint">Works once, for 24 hours. Send it to them yourself.</span><div className="row"><input className="input" readOnly value={link} onFocus={(e) => e.target.select()} style={{ flex: 1 }} /><button className="btn" onClick={() => navigator.clipboard?.writeText(link).then(() => toast('Copied'))}>Copy</button></div><button className="btn link" onClick={() => { setLink(null); setInviting(false); setInvite({ email: '', role: 'support' }); reload(); }}>Done</button></div>}
         </section>
         <section>
-          <h2>Activity</h2>
-          {((d.audit as R[] | undefined) ?? []).map((l) => <div className="log" key={l.id}><span className="sub">{stamp(l.created_at)}</span><span><strong>{describe(l, admins)}</strong><br /><span className="sub">{l.email ?? 'System'}</span></span></div>)}
+          <div className="line flat"><h2>Recent activity</h2><a href="/admin/activity" onClick={(e) => { e.preventDefault(); go('/admin/activity'); }}>See all</a></div>
+          {((d.audit as R[] | undefined) ?? []).slice(0, 8).map((l) => <div className="log" key={l.id}><span className="sub">{stamp(l.created_at)}</span><span><strong>{describe(l, admins)}</strong><br /><span className="sub">{l.email ?? 'System'}</span></span></div>)}
         </section>
       </div>
     </>

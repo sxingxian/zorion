@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
+import { tidyMapSettings } from '@zorion/core';
 import { type Db, one } from '@zorion/db';
 import { type App, type Deps, Fail, body, features, getPlans, requireUser } from './core';
 import { hmac, safeEqual } from './crypto';
@@ -122,17 +123,20 @@ ads.get('/:placement', async (c) => {
 export const publicConfig = new Hono<App>();
 publicConfig.get('/', async (c) => {
   const { db, env } = c.get('deps');
-  const [plans, adsense, placements] = await Promise.all([
+  const [plans, adsense, placements, maps] = await Promise.all([
     getPlans(db),
     db.query("select value from settings where key = 'adsense'"),
     db.query("select key from ad_placements where enabled and kind = 'adsense'"),
+    db.query('select key, value from settings where key = any($1)', [['map_tiles_sg', 'map_tiles_world', 'map_tiles_backup', 'map_start_3d', 'map_buildings', 'map_animate']]),
   ]);
+  const m = Object.fromEntries(maps.map((r) => [String(r.key), r.value]));
   const a = (adsense[0]?.value ?? {}) as { publisherId?: string; slot?: string; consent?: boolean };
   const google = !!a.publisherId && !!a.slot;
   return c.json({
     siteOrigin: env.SITE_ORIGIN,
     plans,
     googleAds: google ? { consent: a.consent !== false, placements: placements.map((p) => p.key) } : null,
+    maps: tidyMapSettings({ sg: m.map_tiles_sg, world: m.map_tiles_world, backup: m.map_tiles_backup, start3d: m.map_start_3d, buildings: m.map_buildings, animate: m.map_animate }),
   });
 });
 
@@ -143,6 +147,7 @@ export async function cleanUp(db: Db): Promise<void> {
     // A meetup ends a day after it starts. One that never got a date ends 30 days after its last change, so nothing lingers.
     ["update meetups set status = 'ended', updated_at = now() where status <> 'ended' and ((starts_at is not null and starts_at < now() - interval '24 hours') or (starts_at is null and updated_at < now() - interval '30 days'))", []],
     ["update participants set lat = null, lng = null where meetup_id in (select id from meetups where status = 'ended') and lat is not null", []],
+    ["delete from route_lines where participant_id in (select p.id from participants p join meetups m on m.id = p.meetup_id where m.status = 'ended')", []],
     ["update participants set email = null, email_confirmed = false where meetup_id in (select id from meetups where status = 'ended') and email is not null", []],
     ["update participants set telegram_chat_id = null where meetup_id in (select id from meetups where status = 'ended') and telegram_chat_id is not null", []],
     ['delete from telegram_links where expires_at < now()', []],

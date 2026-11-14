@@ -46,7 +46,9 @@ it('needs password and authenticator, and nothing works signed out', async () =>
   expect((await b('POST', '/sign-in', { email: 'root@example.com', password: 'correct horse battery' })).body.next).toBe('two_step');
   expect((await b('GET', '/overview')).status).toBe(401); // password alone is not enough
   expect((await b('POST', '/two-step', { code: await totpAt(secrets['root@example.com']!, totpStep(now)) })).body.next).toBe('done');
-  expect((await b('GET', '/overview')).body.placesProvider).toBe('osm');
+  expect((await b('GET', '/overview')).body).toMatchObject({ days: 7, users: { hosts: 0 }, pendingApprovals: 0 });
+  expect((await b('GET', '/overview?days=30')).body.perDay).toHaveLength(30);
+  expect((await b('GET', '/activity')).body).toMatchObject({ page: 1, pageSize: 25 });
 });
 
 it('a lone super admin can act alone, and the log says so', async () => {

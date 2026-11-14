@@ -35,7 +35,9 @@ export function Privacy() {
       <ul>
         <li>You give it once per meetup, either by sharing your device's location or by typing a place.</li>
         <li>It is used to work out the fair middle and your own travel time.</li>
-        <li>It is never shown or sent to anyone else in the meetup, including the host. Other people see travel minutes only.</li>
+        <li>On the crew map, others see only a rough area about 1 km wide, with no name, its centre moved by a fixed random amount, and a route line that starts at its edge. That includes the host.</li>
+        <li>If you turn on "Show me on the crew map", the others in this meetup see your exact starting point and your name. You can turn it off at any time.</li>
+        <li>The middle is only shown once three or more people have added a start.</li>
         <li>It is erased when the meetup ends, which is 24 hours after its start time. A meetup that never gets a date ends 30 days after its last change. The rest of the meetup is deleted 90 days after it ends.</li>
       </ul>
 
@@ -58,6 +60,8 @@ export function Privacy() {
         <li><strong>Stripe</strong> takes payment for Pro on its own pages.</li>
         <li><strong>Places search</strong> (Google Maps Platform, Geoapify or OpenStreetMap services) receives the middle point and the kind of food, to find places near it. It does not receive anyone's starting point or name. The app shows which service found the places.</li>
         <li><strong>Typed places.</strong> If you type a place instead of sharing your location, the words you type go from our server to a map service to be looked up: Google Maps Platform, OneMap (run by the Singapore Land Authority), Geoapify or OpenStreetMap's Nominatim, tried in that order. To put nearby results first, a rough point (to about 10 km) for the meetup's area goes with them. Your name and network address do not. The app shows which service answered.</li>
+        <li><strong>Map tiles.</strong> The crew map is drawn from tiles your browser loads straight from a free map service: OneMap (Singapore Land Authority) in Singapore, otherwise OpenFreeMap, VersaTiles or Maptoolkit. That service sees your network address and the area you are looking at, as with any website that shows a map. It does not receive names, votes or anyone's starting point.</li>
+        <li><strong>Route lines.</strong> To draw each person's route on the crew map, the routing service gets the start (or, for anyone not sharing their pin, the moved centre of their rough area) and the middle or the place, with no names. If trip times are set to Zorion's estimate, routes are drawn as straight lines and nothing is sent.</li>
         <li><strong>Routed travel times.</strong> Zorion normally estimates travel time itself. If we switch on routed times, each starting point and the candidate places are sent to a routing service to be routed, with no names attached. That service is one of: Google Maps Platform, OneMap, openrouteservice run by HeiGIT, Geoapify, or the OpenStreetMap routing servers run by FOSSGIS. When one is unavailable or its free allowance is used up, the next is tried. The app shows which service gave the times.</li>
       </ul>
       <p>We do not sell personal data, and Zorion has no analytics or tracking scripts.</p>

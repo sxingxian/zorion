@@ -59,6 +59,7 @@ export interface User {
   has_password: boolean;
   notify: boolean; // emails about their meetups
   telegram: boolean; // a Telegram chat is connected for the same news
+  avatar: string; // the pig they picked
 }
 
 export type Vars = { deps: Deps; user: User | null; sessionId: string | null; pending: { userId: string; first: string } | null };
@@ -153,7 +154,7 @@ export async function startSession(c: C, userId: string, kind: 'full' | 'pending
   putCookie(c, 'zorion', token, seconds);
 }
 
-const USER_COLUMNS = `u.id, u.email, u.display_name, u.plan, u.theme, u.status, u.totp_enabled, (u.password_hash is not null) as has_password, u.notify, (u.telegram_chat_id is not null) as telegram`;
+const USER_COLUMNS = `u.id, u.email, u.display_name, u.plan, u.theme, u.status, u.totp_enabled, (u.password_hash is not null) as has_password, u.notify, (u.telegram_chat_id is not null) as telegram, u.avatar`;
 
 export async function loadSession(c: C): Promise<void> {
   c.set('user', null);
@@ -176,7 +177,7 @@ export async function loadSession(c: C): Promise<void> {
   c.set('user', toUser(row));
 }
 export function toUser(row: Row): User {
-  return { id: row.id, email: row.email, display_name: row.display_name, plan: row.plan, theme: row.theme, status: row.status, totp_enabled: row.totp_enabled, has_password: row.has_password, notify: row.notify !== false, telegram: !!row.telegram };
+  return { id: row.id, email: row.email, display_name: row.display_name, plan: row.plan, theme: row.theme, status: row.status, totp_enabled: row.totp_enabled, has_password: row.has_password, notify: row.notify !== false, telegram: !!row.telegram, avatar: row.avatar ?? 'chef' };
 }
 export function requireUser(c: C): User {
   const user = c.get('user');

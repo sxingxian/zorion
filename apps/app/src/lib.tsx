@@ -1,4 +1,4 @@
-import type { PlanFeatures, Plans } from '@zorion/core';
+import type { MapSettings, PlanFeatures, Plans } from '@zorion/core';
 import { type AnchorHTMLAttributes, type ReactNode, createContext, useCallback, useContext, useEffect, useState, useSyncExternalStore } from 'react';
 
 // ---------- API ----------
@@ -56,7 +56,7 @@ const subscribe = (fn: () => void) => {
   };
 };
 export function navigate(to: string, replace = false): void {
-  if (to === location.pathname) return;
+  if (to === location.pathname && !history.state?.sheet) return;
   history[replace ? 'replaceState' : 'pushState'](null, '', to);
   listeners.forEach((fn) => fn());
   window.scrollTo(0, 0);
@@ -91,6 +91,58 @@ export function Link({ to, children, ...rest }: { to: string; children: ReactNod
   );
 }
 
+// ---------- sheets: Pro and Install open over the current screen ----------
+// Each sheet is a history entry, so Back or Close returns to exactly where you were.
+export type SheetName = 'pro' | 'install';
+const sheetSubs = new Set<() => void>();
+const sheetNow = (): SheetName | null => (history.state && typeof history.state === 'object' ? (history.state.sheet as SheetName) ?? null : null);
+const onSheetPop = () => sheetSubs.forEach((fn) => fn());
+export function openSheet(name: SheetName): void {
+  if (sheetNow() === name) return;
+  history.pushState({ sheet: name }, '', location.pathname + location.search);
+  sheetSubs.forEach((fn) => fn());
+}
+export function closeSheet(): void {
+  if (sheetNow()) history.back();
+}
+export function useSheet(): SheetName | null {
+  return useSyncExternalStore((fn) => {
+    sheetSubs.add(fn);
+    window.addEventListener('popstate', onSheetPop);
+    return () => { sheetSubs.delete(fn); window.removeEventListener('popstate', onSheetPop); };
+  }, sheetNow);
+}
+export const openPro = () => openSheet('pro');
+
+// ---------- install as an app (PWA) ----------
+interface InstallPromptEvent extends Event { prompt(): Promise<void>; userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }> }
+let deferred: InstallPromptEvent | null = null;
+const installSubs = new Set<() => void>();
+if (typeof window !== 'undefined') {
+  window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); deferred = e as InstallPromptEvent; installSubs.forEach((fn) => fn()); });
+  window.addEventListener('appinstalled', () => { deferred = null; try { localStorage.setItem('zorion-installed', '1'); } catch { /* fine */ } installSubs.forEach((fn) => fn()); });
+}
+const standalone = () => matchMedia('(display-mode: standalone)').matches || (navigator as { standalone?: boolean }).standalone === true;
+const isIos = () => /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+/** What install looks like here: the browser's own prompt, the iPhone steps, or nothing (already installed). */
+export function useInstall() {
+  const [, tick] = useState(0);
+  const [dismissed, setDismissed] = useState(() => { try { return localStorage.getItem('zorion-install-dismissed') === '1'; } catch { return false; } });
+  useEffect(() => { const fn = () => tick((n) => n + 1); installSubs.add(fn); return () => { installSubs.delete(fn); }; }, []);
+  let installed = false;
+  try { installed = standalone() || localStorage.getItem('zorion-installed') === '1'; } catch { installed = standalone(); }
+  const ios = isIos() && !installed;
+  const can = !installed && (!!deferred || ios);
+  return {
+    can, ios, installed, dismissed,
+    install: async () => {
+      if (deferred) { const e = deferred; deferred = null; await e.prompt(); await e.userChoice.catch(() => null); tick((n) => n + 1); }
+      else openSheet('install');
+    },
+    dismiss: () => { try { localStorage.setItem('zorion-install-dismissed', '1'); } catch { /* fine */ } setDismissed(true); },
+  };
+}
+
 // ---------- signed-in host ----------
 export interface Me {
   id: string;
@@ -103,11 +155,12 @@ export interface Me {
   notify: boolean;
   telegram: boolean; // a Telegram chat is connected
   telegram_ready: boolean; // Zorion's bot is set up
+  avatar: string; // the pig they picked
   features: PlanFeatures; // what this host's plan includes, as set in the admin portal
 }
 
 // ---------- public settings: plans, prices and Google ads ----------
-export interface AppConfig { siteOrigin: string; plans: Plans; googleAds: { consent: boolean; placements: string[] } | null }
+export interface AppConfig { siteOrigin: string; plans: Plans; googleAds: { consent: boolean; placements: string[] } | null; maps?: MapSettings }
 let configPromise: Promise<AppConfig | null> | null = null;
 export function useConfig(): AppConfig | null {
   const [config, setConfig] = useState<AppConfig | null>(null);

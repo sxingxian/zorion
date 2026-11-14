@@ -23,6 +23,8 @@ export const SERVICES = {
   geoapify: { label: 'Geoapify credits', unit: 'credits', free: 3000, period: 'day', provider: 'geoapify', billed: false },
   // openrouteservice: matrix requests (each is one table of trip times).
   ors_matrix: { label: 'openrouteservice tables', unit: 'tables', free: 500, period: 'day', provider: 'ors', billed: false },
+  // openrouteservice directions: one route line on the map each.
+  ors_directions: { label: 'openrouteservice routes', unit: 'routes', free: 2000, period: 'day', provider: 'ors', billed: false },
 } as const satisfies Record<string, Service>;
 export type ServiceKey = keyof typeof SERVICES;
 /** Kept for the Google-only callers and the portal. */
