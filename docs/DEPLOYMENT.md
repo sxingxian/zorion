@@ -117,7 +117,7 @@ Admins can't sign up. Create the first one in the browser:
 
 Setup closes for good once any admin exists, even with the right token. Five wrong tokens pause it for 30 minutes, and every try is in the audit log.
 
-From then on, admins always sign in with password, then authenticator. Sensitive actions (suspending or deleting a host, any change to ads) need a second admin's approval once there are two. Changing a key (Stripe, Telegram, email) needs a super admin and a fresh authenticator code. To add an admin: **Admins** → **Invite**. Send them the link; it works once, for 24 hours, and they set their own password and authenticator.
+From then on, admins always sign in with password, then authenticator. Sensitive actions (suspending or deleting a host, giving or removing Pro, any change to ads) need a second admin's approval once there are two. To give a host Pro: **Users** → pick the host → **Give Pro**, choose how long (1 month, 3 months, 1 year or no end date) and add a note for the log if you like. It ends by itself; **Remove Pro** ends it early. Changing a key (Stripe, Telegram, email) needs a super admin and a fresh authenticator code. To add an admin: **Admins** → **Invite**. Send them the link; it works once, for 24 hours, and they set their own password and authenticator.
 
 ## 7. Google ads (in the app, for Free users)
 

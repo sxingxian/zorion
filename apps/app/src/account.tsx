@@ -158,8 +158,8 @@ export function Account({ me, modeChoice, setMode }: { me: Me; modeChoice: ModeC
         </div>
         <Oops>{error}</Oops>
         <div className="card row between" style={{ padding: '14px 16px' }}>
-          <div className="stack" style={{ gap: 0 }}><strong style={{ fontWeight: 800 }}>{pro ? 'Pro' : 'Free'}</strong><span className="small">{pro ? 'No ads' : `Up to ${me.features.groupSize} people${me.features.ads ? ', with ads' : ''}`}</span></div>
-          {pro ? <button className="btn second sm" disabled={busy} onClick={() => run(async () => { location.href = (await api('POST', '/billing/portal')).url; })}>Manage</button> : <button className="btn sm" onClick={openPro}>Upgrade</button>}
+          <div className="stack" style={{ gap: 0 }}><strong style={{ fontWeight: 800 }}>{pro ? 'Pro' : 'Free'}</strong><span className="small">{pro ? proLine(me) : `Up to ${me.features.groupSize} people${me.features.ads ? ', with ads' : ''}`}</span></div>
+          {pro && !me.pro.paid ? null : pro ? <button className="btn second sm" disabled={busy} onClick={() => run(async () => { location.href = (await api('POST', '/billing/portal')).url; })}>Manage</button> : <button className="btn sm" onClick={openPro}>Upgrade</button>}
         </div>
         <div className="group"><span className="label">Appearance</span>
           <Seg value={modeChoice} onChange={setMode} options={[{ value: 'light', label: 'Light' }, { value: 'dark', label: 'Dark' }, { value: 'auto', label: 'Auto' }]} />
@@ -228,6 +228,13 @@ export function PickPig({ me }: { me: Me }) {
   );
 }
 
+/** The last day of given Pro (stored as the start of the next day), by Singapore's calendar, like the admin portal. */
+const proDate = (until: string) => new Date(new Date(until).getTime() - 1).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Singapore' }); // Pro ends by Singapore's clock
+function proLine(me: Me): string {
+  if (me.pro.paid) return 'No ads';
+  return me.pro.givenForever ? 'Given by Zorion' : `Given until ${proDate(me.pro.givenUntil!)}`;
+}
+
 /** What Pro adds over Free, worded from the plans set in the admin portal. */
 function benefits(plans: Plans): string[] {
   const { free, pro } = plans;
@@ -256,7 +263,7 @@ export function Pro({ me, sheet = false }: { me: Me; sheet?: boolean }) {
       {!sheet && <div className="row" style={{ justifyContent: 'flex-end' }}><a className="sq" href="/" aria-label="Close" onClick={(e) => { e.preventDefault(); if (history.length > 1) history.back(); else navigate('/'); }}>✕</a></div>}
       <div className="stack center" style={{ alignItems: 'center', gap: 10 }}><Mascot size={128} bob label="Zorion in gold star sunglasses" /><h1 className="display h0">Zorion Pro</h1></div>
       {config && <ul className="stack" style={{ listStyle: 'none', margin: 0, padding: 0, gap: 10 }}>{benefits(config.plans).map((b, i) => <li key={b} className="row rise" style={{ animationDelay: `${0.1 + i * 0.08}s` }}><Check />{b}</li>)}</ul>}
-      {me.plan === 'pro' ? <Note ok>You're on Pro.</Note> : !config ? <Loading /> : !onSale ? <Note>Pro isn't on sale yet.</Note> : (
+      {me.plan === 'pro' ? <Note ok>{me.pro.givenUntil && !me.pro.paid ? `You're on Pro until ${proDate(me.pro.givenUntil)}.` : "You're on Pro."}</Note> : !config ? <Loading /> : !onSale ? <Note>Pro isn't on sale yet.</Note> : (
         <>
           <div className="grid2" role="radiogroup" aria-label="Billing period">
             {options.map((p) => <button key={p} className="theme-tile" style={{ minHeight: 72 }} role="radio" aria-checked={period === p} aria-pressed={period === p} onClick={() => setPeriod(p)}><span style={{ fontSize: 13, fontWeight: 700 }}>{p === 'yearly' ? 'Yearly' : 'Monthly'}</span><span style={{ fontWeight: 800 }}>{formatPrice(price![p])}{p === 'yearly' ? ' / year' : ' / month'}</span></button>)}

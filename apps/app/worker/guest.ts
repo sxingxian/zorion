@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { LIMITS, cleanName, isBlockedName, makeGuestCode, maxCategoryVotes, normaliseGuestCode, rsvpAfterPlaceVote } from '@zorion/core';
 import * as schemas from '@zorion/core/schemas';
 import type { Row } from '@zorion/db';
-import { type App, type C, Fail, body, clearStrikes, clientKey, features, guardLock, putCookie, readCookie, setting, strike } from './core';
+import { type App, type C, Fail, body, clearStrikes, clientKey, features, guardLock, putCookie, readCookie, PLAN_SQL, setting, strike } from './core';
 import { hmac, randomToken, sha256 } from './crypto';
 import { guestForToken, later, sendConfirmation, tellHost } from './mail';
 import { connectLink, telegramReady } from './telegram';
@@ -145,7 +145,7 @@ guest.post('/:token/join', async (c) => {
     const n = cleanName(input.name, LIMITS.inviteeName);
     if (!n || isBlockedName(n, await setting<string[]>(db, 'blocked_words', []))) throw new Fail(422, 'invalid', 'Enter another name.');
     if (L.people.some((p) => p.name.toLowerCase() === n.toLowerCase())) throw new Fail(409, 'taken', 'That name is already listed. Tap it, or pick another.');
-    const hostPlan = (await db.query('select plan from users where id = $1', [L.m.host_id]))[0]?.plan ?? 'free';
+    const hostPlan = (await db.query(`select ${PLAN_SQL} as plan from users u where u.id = $1`, [L.m.host_id]))[0]?.plan ?? 'free';
     if (L.people.length + 1 > (await features(db, hostPlan as 'free' | 'pro')).groupSize) throw new Fail(409, 'full', 'This meetup is full.');
     id = (await db.query('insert into participants (meetup_id, name) values ($1, $2) returning id', [L.m.id, n]))[0]!.id;
   }

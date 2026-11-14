@@ -53,6 +53,8 @@ export interface User {
   email: string;
   display_name: string;
   plan: 'free' | 'pro';
+  /** How they have Pro: paid through Stripe, given by an admin, or not at all. */
+  pro: { paid: boolean; givenUntil: string | null; givenForever: boolean };
   theme: 'gold' | 'pink';
   status: 'active' | 'suspended';
   totp_enabled: boolean;
@@ -154,7 +156,9 @@ export async function startSession(c: C, userId: string, kind: 'full' | 'pending
   putCookie(c, 'zorion', token, seconds);
 }
 
-const USER_COLUMNS = `u.id, u.email, u.display_name, u.plan, u.theme, u.status, u.totp_enabled, (u.password_hash is not null) as has_password, u.notify, (u.telegram_chat_id is not null) as telegram, u.avatar`;
+/** On Pro while paid (Stripe) or given by an admin and not yet ended. Every plan check reads this. */
+export const PLAN_SQL = `(case when u.plan = 'pro' or u.pro_grant_until > now() then 'pro' else 'free' end)`;
+export const USER_COLUMNS = `u.id, u.email, u.display_name, ${PLAN_SQL} as plan, u.plan as paid_plan, (case when u.pro_grant_until > now() and u.pro_grant_until <> 'infinity' then u.pro_grant_until end) as given_until, coalesce(u.pro_grant_until = 'infinity', false) as given_forever, u.theme, u.status, u.totp_enabled, (u.password_hash is not null) as has_password, u.notify, (u.telegram_chat_id is not null) as telegram, u.avatar`;
 
 export async function loadSession(c: C): Promise<void> {
   c.set('user', null);
@@ -177,7 +181,11 @@ export async function loadSession(c: C): Promise<void> {
   c.set('user', toUser(row));
 }
 export function toUser(row: Row): User {
-  return { id: row.id, email: row.email, display_name: row.display_name, plan: row.plan, theme: row.theme, status: row.status, totp_enabled: row.totp_enabled, has_password: row.has_password, notify: row.notify !== false, telegram: !!row.telegram, avatar: row.avatar ?? 'chef' };
+  return { id: row.id, email: row.email, display_name: row.display_name, plan: row.plan, pro: proOf(row), theme: row.theme, status: row.status, totp_enabled: row.totp_enabled, has_password: row.has_password, notify: row.notify !== false, telegram: !!row.telegram, avatar: row.avatar ?? 'chef' };
+}
+function proOf(row: Row): User['pro'] {
+  const until = row.given_until ? new Date(row.given_until as string) : null;
+  return { paid: row.paid_plan === 'pro', givenUntil: until ? until.toISOString() : null, givenForever: !!row.given_forever };
 }
 export function requireUser(c: C): User {
   const user = c.get('user');

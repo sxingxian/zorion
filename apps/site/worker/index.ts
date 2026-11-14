@@ -13,11 +13,27 @@ import { config, plans } from './config';
 const ACTIONS = {
   'user.suspend': z.object({ userId: uuid, suspend: z.boolean() }),
   'user.delete': z.object({ userId: uuid }),
+  // Pro given by an admin. endsOn is the last day of Pro (Singapore time); null means no end date. grant: false removes it.
+  'user.pro': z.object({
+    userId: uuid,
+    grant: z.boolean(),
+    endsOn: z.string().date().nullable().default(null),
+    note: z.string().trim().max(120).default(''),
+  }).refine((p) => !p.grant || p.endsOn === null || (p.endsOn > sgToday() && p.endsOn <= sgToday(5)), { message: 'Pick an end date from tomorrow up to five years ahead.' }),
   'ads.placement': z.object({ key: z.string().max(40), enabled: z.boolean() }),
   'ads.sponsor': z.object({ name: z.string().trim().min(1).max(60), categoryKey: z.string().max(24).nullable(), url: z.string().url().startsWith('https://').max(300).nullable(), startsOn: z.string().date(), endsOn: z.string().date() }),
   'ads.adsense': z.object({ publisherId: z.string().regex(/^(ca-pub-\d{10,20})?$/), slot: z.string().regex(/^(\d{6,20})?$/).default(''), consent: z.boolean() }),
 } as const;
 type Action = keyof typeof ACTIONS;
+
+/** Today's date in Singapore, optionally some years ahead, as YYYY-MM-DD. */
+function sgToday(yearsAhead = 0): string {
+  const d = new Date(Date.now() + 8 * 3_600_000);
+  d.setUTCFullYear(d.getUTCFullYear() + yearsAhead);
+  return d.toISOString().slice(0, 10);
+}
+/** Who has Pro, worked out the same way as in the app: paid, or given and not yet ended. */
+const PLAN_SQL = `(case when u.plan = 'pro' or u.pro_grant_until > now() then 'pro' else 'free' end)`;
 
 async function execute(db: Db, action: Action, p: any): Promise<void> {
   if (action === 'user.suspend') {
@@ -26,6 +42,11 @@ async function execute(db: Db, action: Action, p: any): Promise<void> {
       ...(p.suspend ? [['delete from sessions where user_id = $1', [p.userId]] as [string, unknown[]]] : []),
     ]);
   } else if (action === 'user.delete') await db.query('delete from users where id = $1', [p.userId]);
+  else if (action === 'user.pro') {
+    // Ends at the close of the chosen day in Singapore. Paid Pro (users.plan) is never touched.
+    if (p.grant) await db.query(`update users set pro_grant_until = case when $2::date is null then 'infinity'::timestamptz else (($2::date + 1)::timestamp at time zone 'Asia/Singapore') end, pro_grant_note = nullif($3, '') where id = $1`, [p.userId, p.endsOn, p.note]);
+    else await db.query('update users set pro_grant_until = least(pro_grant_until, now()) where id = $1', [p.userId]);
+  }
   else if (action === 'ads.placement') await db.query('update ad_placements set enabled = $2 where key = $1', [p.key, p.enabled]);
   else if (action === 'ads.sponsor') await db.query('insert into sponsors (name, category_key, url, starts_on, ends_on) values ($1, $2, $3, $4, $5)', [p.name, p.categoryKey, p.url, p.startsOn, p.endsOn]);
   else if (action === 'ads.adsense') await db.query("insert into settings (key, value) values ('adsense', $1) on conflict (key) do update set value = excluded.value, updated_at = now()", [JSON.stringify(p)]);
@@ -213,8 +234,9 @@ setTimeout(function () { if (ins.getAttribute('data-ad-status') !== 'filled') te
     const { db, env } = c.get('deps');
     const days = c.req.query('days') === '30' ? 30 : 7;
     const [users, stages, pending, period, perDay, statuses, recent] = await Promise.all([
-      db.query(`select count(*)::int as hosts, count(*) filter (where plan = 'pro')::int as pro, count(*) filter (where status = 'suspended')::int as suspended,
-                  count(*) filter (where created_at > now() - make_interval(days => $1))::int as new_hosts from users`, [days]),
+      db.query(`select count(*)::int as hosts, count(*) filter (where ${PLAN_SQL} = 'pro')::int as pro,
+                  count(*) filter (where u.plan <> 'pro' and u.pro_grant_until > now())::int as pro_given, count(*) filter (where status = 'suspended')::int as suspended,
+                  count(*) filter (where created_at > now() - make_interval(days => $1))::int as new_hosts from users u`, [days]),
       db.query('select status, count(*)::int as n from meetups group by status'),
       db.query("select count(*)::int as n from approvals where status = 'pending'"),
       db.query(`select
@@ -325,11 +347,13 @@ setTimeout(function () { if (ins.getAttribute('data-ad-status') !== 'filled') te
     const q = (c.req.query('q') ?? '').trim().toLowerCase().slice(0, 80);
     const plan = c.req.query('plan');
     const page = Math.max(1, Math.min(10_000, Number(c.req.query('page')) || 1));
-    const where = `where ($1 = '' or u.email like '%' || $1 || '%' or lower(u.display_name) like '%' || $1 || '%') and ($2::text is null or ($2 = 'suspended' and u.status = 'suspended') or u.plan = $2)`;
+    const where = `where ($1 = '' or u.email like '%' || $1 || '%' or lower(u.display_name) like '%' || $1 || '%') and ($2::text is null or ($2 = 'suspended' and u.status = 'suspended') or ${PLAN_SQL} = $2)`;
     const args = [q, plan && ['free', 'pro', 'suspended'].includes(plan) ? plan : null];
     const { db } = c.get('deps');
     const [rows, total] = await Promise.all([
-      db.query(`select u.id, u.email, u.display_name, u.avatar, u.plan, u.status, u.totp_enabled, u.created_at, u.last_sign_in_at, (select count(*)::int from meetups m where m.host_id = u.id) as meetups
+      db.query(`select u.id, u.email, u.display_name, u.avatar, ${PLAN_SQL} as plan, (u.plan = 'pro') as paid,
+                  (case when u.pro_grant_until > now() and u.pro_grant_until <> 'infinity' then u.pro_grant_until end) as given_until,
+                  coalesce(u.pro_grant_until = 'infinity', false) as given_forever, u.pro_grant_note as given_note, u.status, u.totp_enabled, u.created_at, u.last_sign_in_at, (select count(*)::int from meetups m where m.host_id = u.id) as meetups
                 from users u ${where} order by u.created_at desc limit 25 offset $3`, [...args, (page - 1) * 25]),
       db.query(`select count(*)::int as n from users u ${where}`, args),
     ]);
