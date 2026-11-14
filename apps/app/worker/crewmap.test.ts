@@ -57,5 +57,18 @@ describe('the crew map keeps starts private', () => {
     expect(calls).toHaveLength(0);
     expect(view.singapore).toBe(true);
     expect(JSON.stringify(view.people.filter((p) => p.kind === 'rough'))).not.toMatch(/1\.31,|103\.86[^0-9]/);
+    expect(view.avatar).toBe('plain'); // a guest has no account, so their marker is the plain pig
+    expect(view.icon).toBeNull();
+  });
+
+  it("the host's marker is their own pig, and the meeting place carries the winning food's icon", async () => {
+    const db = await testDb();
+    const host = (await db.query("insert into users (email, display_name, avatar) values ('h@example.com', 'H', 'crown') returning id"))[0]!.id;
+    const deps = { db, env: {} as Env, fetch: (async () => new Response('no', { status: 500 })) as unknown as typeof fetch, now: () => new Date(), outbox: [] } as unknown as Deps;
+    const L = loaded([person('00000000-0000-0000-0000-00000000000a', 'H', 1.3, 103.85, { is_host: true })], { host_id: host, winning_category: 'pizza' });
+    (L as any).cats = [{ key: 'pizza', icon: 'pizza' }];
+    const view = await mapView(deps, L, L.people[0]!, []);
+    expect(view.avatar).toBe('crown');
+    expect(view.icon).toBe('pizza');
   });
 });

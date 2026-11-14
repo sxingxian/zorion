@@ -5,7 +5,7 @@ import * as maplibregl from 'maplibre-gl';
 import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?url';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import type { Feature, FeatureCollection } from 'geojson';
-import { ART, BUILDINGS_TILEJSON, type MapSettings, TILE_SOURCES, type TileSourceKey } from '@zorion/core';
+import { AVATAR_ART, AVATAR_VIEWBOX, type Avatar, BUILDINGS_TILEJSON, ICONS, type MapSettings, TILE_SOURCES, type TileSourceKey } from '@zorion/core';
 import type { MapData } from './meetupmap';
 
 maplibregl.setWorkerUrl(workerUrl);
@@ -102,29 +102,55 @@ export function createMap(container: HTMLElement, first: MapData, settings: MapS
     map.addLayer({ id: 'routes-dash', type: 'line', source: 'routes', layout: { 'line-join': 'round' }, paint: { 'line-color': ['match', ['get', 'kind'], 'rough', '#6b6b74', '#0b0b0d'], 'line-width': ['match', ['get', 'kind'], 'you', 6, 4], 'line-dasharray': DASHES[0]! } });
   }
 
+  // Markers. The pig only ever means you, at your exact start. The middle is a neutral ring; places to vote on
+  // are numbered; where you're meeting gets the pink pin with the winning food's icon. Others who share their
+  // pin show an initial and their name; everyone else is a rough area drawn on the map itself.
   function placeMarkers() {
     markers.splice(0).forEach((m) => m.remove());
-    const add = (html: string, lng: number, lat: number, anchor: maplibregl.PositionAnchor = 'bottom', label?: string) => {
+    const add = (html: string, lng: number, lat: number, anchor: maplibregl.PositionAnchor, label: string) => {
       const el = document.createElement('div');
       el.className = 'mk';
       el.innerHTML = html;
-      if (label) { el.setAttribute('role', 'img'); el.setAttribute('aria-label', label); }
+      el.setAttribute('role', 'img');
+      el.setAttribute('aria-label', label);
       markers.push(new maplibregl.Marker({ element: el, anchor }).setLngLat([lng, lat]).addTo(map));
     };
-    if (data.middle && data.dest?.kind !== 'place') add(`<span class="mk-mid"><svg viewBox="-6 -14 132 126" width="34" height="32" aria-hidden="true">${ART.headChef}</svg></span><i class="mk-stem"></i>`, data.middle.lng, data.middle.lat, 'bottom', 'The middle');
-    for (const p of data.places) add(`<span class="mk-num${p.chosen ? ' on' : ''}">${p.n}</span><i class="mk-stem"></i>`, p.lng, p.lat, 'bottom', `${p.n}. ${esc(p.name)}`);
+    const venue = data.dest?.kind === 'place' ? data.places.find((p) => p.chosen) : undefined;
+    const voting = !venue && data.places.length > 0;
+    // Each marker's own box is the round part, centred on its point; labels hang outside it (see theme.css).
+    if (data.middle && !venue) add(`<span class="mk-mid${voting ? ' small' : ''}"></span>${voting ? '' : '<span class="mk-tag light below">Middle</span>'}`, data.middle.lng, data.middle.lat, 'center', 'The middle');
+    if (venue) {
+      const icon = data.icon && ICONS[data.icon] ? `<svg x="9" y="7" width="22" height="22" viewBox="0 0 24 24">${ICONS[data.icon]}</svg>` : '<circle cx="20" cy="18" r="5" fill="#0b0b0d"></circle>';
+      add(`<svg class="mk-venue" viewBox="0 0 40 50" width="44" height="55" aria-hidden="true"><path d="M20 48 C20 48 4 31 4 18 A16 16 0 1 1 36 18 C36 31 20 48 20 48 Z" fill="#ffa6fc" stroke="#0b0b0d" stroke-width="3" stroke-linejoin="round"></path>${icon}</svg><span class="mk-tag above">${esc(venue.name)}</span>`, venue.lng, venue.lat, 'bottom', `Meeting at ${esc(venue.name)}`);
+    } else {
+      for (const p of data.places) add(`<span class="mk-num">${p.n}</span>`, p.lng, p.lat, 'center', `${p.n}. ${esc(p.name)}`);
+    }
     for (const p of data.people) {
-      if (p.kind === 'you') add('<span class="mk-pill">You</span><i class="mk-stem"></i>', p.lng, p.lat, 'bottom', 'You');
-      else if (p.kind === 'shared') add(`<span class="mk-pill light">${esc(p.name ?? '')}</span><i class="mk-stem"></i>`, p.lng, p.lat, 'bottom', esc(p.name ?? ''));
+      if (p.kind === 'shared') add(`<span class="mk-ini">${esc([...(p.name ?? '?')][0]!.toUpperCase())}</span><span class="mk-tag light right">${esc(p.name ?? '')}</span>`, p.lng, p.lat, 'center', esc(p.name ?? ''));
+    }
+    const you = data.people.find((p) => p.kind === 'you');
+    if (you) {
+      const pig = (data.avatar && data.avatar in AVATAR_ART ? data.avatar : 'plain') as Avatar;
+      add(`<span class="mk-you"><svg viewBox="${AVATAR_VIEWBOX}" width="38" height="38" aria-hidden="true">${AVATAR_ART[pig]}</svg></span><span class="mk-tag below">You</span>`, you.lng, you.lat, 'center', 'You');
     }
   }
 
+  /** What the view frames: the place and you once it's set; the places while voting; otherwise everyone. */
+  function framed(): [number, number][] {
+    const at = (p: { lng: number; lat: number }): [number, number] => [p.lng, p.lat];
+    const venue = data.dest?.kind === 'place' ? data.places.find((p) => p.chosen) : undefined;
+    const you = data.people.filter((p) => p.kind === 'you');
+    if (venue) return [at(venue), ...(you.length ? you : data.people).map(at)];
+    if (data.places.length) return [...data.places.map(at), ...(data.middle ? [at(data.middle)] : [])];
+    return [...data.people.map(at), ...(data.middle ? [at(data.middle)] : [])];
+  }
+
   function fit(animateMove = false) {
-    const pts: [number, number][] = [...data.people.map((p): [number, number] => [p.lng, p.lat]), ...data.places.map((p): [number, number] => [p.lng, p.lat]), ...(data.middle ? [[data.middle.lng, data.middle.lat] as [number, number]] : [])];
+    const pts = framed();
     if (pts.length === 0) return;
     const b = new maplibregl.LngLatBounds(pts[0], pts[0]);
     pts.forEach((p) => b.extend(p));
-    map.fitBounds(b, { padding: opts.compact ? 36 : 64, maxZoom: 16, pitch: three ? 55 : 0, bearing: three ? -18 : 0, duration: animateMove ? 900 : 0 });
+    map.fitBounds(b, { padding: opts.compact ? 40 : 72, maxZoom: 15.5, pitch: three ? 55 : 0, bearing: three ? -18 : 0, duration: animateMove ? 900 : 0 });
   }
 
   // Animation: marching dashes along every route, and a dot travelling each one toward the middle.
