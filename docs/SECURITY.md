@@ -76,7 +76,7 @@ Card details never reach Zorion. Checkout and the customer portal are Stripe's o
 ## Keys entered in the admin portal
 
 - Stripe, Telegram, Resend, Google, Geoapify and openrouteservice keys, and the OneMap account, are entered in the admin portal, not Cloudflare. Each is checked with one real request before it is saved. They are encrypted with AES-GCM under a key derived from `TOTP_KEY` before they are stored, and the portal only ever shows the last four characters of a key. Of the OneMap account it shows a masked email and nothing of the password; no hint of the password is stored either.
-- Map services are called from Zorion's server, never the person's browser, so they never see who asked. Free allowances are counted in the database (`usage_counters`) with one atomic update per call, so two requests at once cannot both slip past a limit. A service that refuses (401, 402, 403, 429) is skipped for an hour.
+- Map services are called from Zorion's server, never the person's browser, so they never see who asked. A starting-place lookup carries at most a point rounded to about 10 km, so it cannot reveal anyone's starting point. Free allowances are counted in the database (`usage_counters`) with one atomic update per call, so two requests at once cannot both slip past a limit. A service that refuses (401, 402, 403, 429) is skipped for an hour.
 - Saving or removing a key, connecting the Stripe webhook, inviting an admin or switching one off needs a super admin and a fresh authenticator code (a used code can't be replayed), and is written to the audit log.
 - Admins are invited by a one-time link that expires in 24 hours. The invitee sets their own password and authenticator.
 

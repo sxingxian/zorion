@@ -167,7 +167,9 @@ The Workers' first deploy creates both records (section 2). Keep the orange-clou
 | Walking and cycling times | Your choice → openrouteservice → Geoapify → OpenStreetMap routing → OneMap → Zorion's estimate |
 | Transit times | Your choice (Google or OneMap) → OneMap → Zorion's estimate |
 
-OneMap only covers Singapore. A meetup outside Singapore skips it straight away, with no request sent: trip times come from the next service, and transit falls back to Google (if chosen) or the estimate. For starting places, the meetup decides which country to search, not where the person is: a guest overseas joining a Singapore meetup still searches Singapore, and someone in Singapore planning a meetup elsewhere is not held to Singapore.
+OneMap only covers Singapore. A meetup outside Singapore skips it straight away, with no request sent: trip times come from the next service, and transit falls back to Google (if chosen) or the estimate.
+
+**Where a starting place is searched.** The meetup decides, not where the person typing is. Once anyone has a starting point, Zorion searches around the middle of them; before that, in the country of the host's time zone when the meetup was made (Asia/Kuala_Lumpur → Malaysia), and near the person only if they are in that country. Nearby results come first but nothing is ruled out, so a Singapore meetup still finds Johor Bahru. OneMap is asked only when the area is in Singapore. The point sent to the lookup service is rounded to about 10 km.
 
 If trip times are set to Zorion's estimate, nothing is routed. The app shows where each list came from ("Places: Geoapify · Trip times: OneMap"), with the credit lines OpenStreetMap, Geoapify and OneMap ask for, and the starting-place picker says which service gave its matches.
 

@@ -1,11 +1,11 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
-import { LIMITS, type Voter, cleanName, countedCategoryVotes, defaultRsvpAfterDateSet, fairMiddle, isBlockedName, leaders, maxCategoryVotes, maxShortlist, rankPlaces, scorePlaces, tally, travelMinutes, waitingForCategoryVotes } from '@zorion/core';
+import { LIMITS, type Point, type Voter, cleanName, countryOfZone, countedCategoryVotes, defaultRsvpAfterDateSet, fairMiddle, isBlockedName, leaders, maxCategoryVotes, maxShortlist, rankPlaces, scorePlaces, tally, travelMinutes, waitingForCategoryVotes } from '@zorion/core';
 import * as schemas from '@zorion/core/schemas';
 import { type Db, type Row, one } from '@zorion/db';
 import { type App, type C, type Deps, Fail, body, clientKey, features, guardLock, requireUser, setting, strike, upgrade } from './core';
 import { randomToken } from './crypto';
-import { findStart } from './geocode';
+import { type Near, findStart } from './geocode';
 import { later, tellGuests } from './mail';
 import { findPlaces } from './places';
 import { routeWithLadder, routingLadder } from './routing';
@@ -54,7 +54,7 @@ export function tripMinutes(L: Loaded, person: Row, place: Row): number | null {
  * Typed starting place. Limited per network, because every lookup is a call to an outside service.
  * `cf` is Cloudflare's rough idea of where the caller is; it only puts nearby results first.
  */
-export async function lookupStart(c: C, q: string, meetupZone: string) {
+export async function lookupStart(c: C, q: string, L: Loaded) {
   const deps = c.get('deps');
   const key = `start-search:${await clientKey(c)}`;
   await guardLock(deps.db, key);
@@ -62,22 +62,31 @@ export async function lookupStart(c: C, q: string, meetupZone: string) {
   const cf = (c.req.raw as { cf?: { country?: string; latitude?: string; longitude?: string } }).cf;
   const lat = Number(cf?.latitude);
   const lng = Number(cf?.longitude);
+  const caller = cf?.latitude && Number.isFinite(lat) && Number.isFinite(lng) ? { country: cf.country, lat, lng } : { country: cf?.country };
+  const known = L.people.filter((p) => p.lat !== null).map((p) => ({ lat: Number(p.lat), lng: Number(p.lng) }));
   try {
-    return await findStart(deps, q, { country: searchCountry(meetupZone, cf?.country), ...(Number.isFinite(lat) && Number.isFinite(lng) && cf?.latitude ? { lat, lng } : {}) });
+    return await findStart(deps, q, meetupArea(L.m.time_zone, known, caller));
   } catch {
     throw new Fail(409, 'search_failed', "Place search isn't responding. Try again, or share your location.");
   }
 }
 
 /**
- * Which country to look in. The meetup decides, not where the person happens to be: a guest flying in
- * to a Singapore meetup still searches Singapore (and gets OneMap), and someone in Singapore planning a
- * meetup elsewhere isn't held to Singapore. Otherwise the person's own country, as Cloudflare sees it.
+ * Where to look for a typed starting place. The meetup decides, not where the person typing happens to be:
+ * 1. the middle of the starting points already given, once there are any;
+ * 2. otherwise the country of the host's time zone when the meetup was made, and the caller's own
+ *    position only if they are in that country.
  */
-export function searchCountry(meetupZone: string, callerCountry: string | undefined): string | undefined {
-  if (meetupZone === 'Asia/Singapore') return 'SG';
-  const caller = callerCountry && /^[A-Za-z]{2}$/.test(callerCountry) ? callerCountry.toUpperCase() : undefined;
-  return caller === 'SG' || caller === 'XX' || caller === 'T1' ? undefined : caller; // XX: unknown, T1: Tor
+export function meetupArea(zone: string, known: Point[], caller: { country?: string; lat?: number; lng?: number }): Near {
+  // Rounded to about 10 km: enough to rank results, too coarse to give away anyone's starting point.
+  const coarse = (x: number) => Math.round(x * 10) / 10;
+  if (known.length) {
+    const mid = fairMiddle(known);
+    return { country: undefined, lat: coarse(mid.lat), lng: coarse(mid.lng) };
+  }
+  const country = countryOfZone(zone);
+  const sameCountry = !!country && caller.country?.toUpperCase() === country;
+  return sameCountry && caller.lat !== undefined && caller.lng !== undefined ? { country, lat: coarse(caller.lat), lng: coarse(caller.lng) } : { country };
 }
 
 const voters = (L: Loaded): Voter[] =>
@@ -309,7 +318,7 @@ meetups.post('/:id/location', async (c) => {
 meetups.post('/:id/start-search', async (c) => {
   const L = await owned(c);
   const { q } = await body(c, schemas.startSearch);
-  return c.json(await lookupStart(c, q, L.m.time_zone)); // { results, source }
+  return c.json(await lookupStart(c, q, L)); // { results, source }
 });
 
 /** The host votes first, before the link goes out. */

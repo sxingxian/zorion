@@ -7,7 +7,7 @@ import { matrixCredits } from './geoapify';
 import { forgetOneMapToken } from './onemap';
 import { findPlaces } from './places';
 import { routeWithLadder, routingLadder } from './routing';
-import { searchCountry } from './meetups';
+import { meetupArea } from './meetups';
 
 const env: Env = { DATABASE_URL: '', APP_ORIGIN: 'http://localhost:5173', SITE_ORIGIN: 'http://localhost:5174', PEPPER: 'p', TOTP_KEY: btoa('0123456789abcdef0123456789abcdef'), ENVIRONMENT: 'development', GEOAPIFY_KEY: 'geo-key', ONEMAP_EMAIL: 'ops@example.sg', ONEMAP_PASSWORD: 'pw', OSRM_FOOT_URL: 'https://osrm.example/foot' };
 const now = new Date('2026-11-14T04:00:00Z');
@@ -93,7 +93,8 @@ describe('OneMap', () => {
     const { deps, calls } = await setup();
     expect((await findStart(deps, 'KLCC', { country: 'MY' })).source).toBe('geoapify');
     expect(calls.some((c) => c.url.includes('onemap'))).toBe(false);
-    expect(new URL(calls[0]!.url).searchParams.get('filter')).toBe('countrycode:my');
+    expect(new URL(calls[0]!.url).searchParams.get('bias')).toBe('countrycode:my'); // preferred, not required
+    expect(new URL(calls[0]!.url).searchParams.get('filter')).toBeNull();
   });
 
   it('gives public transport times, signing in once and sending only positions', async () => {
@@ -124,11 +125,40 @@ describe('OneMap', () => {
 });
 
 describe('overseas', () => {
-  it('the meetup decides which country to search, not where the person is', () => {
-    expect(searchCountry('Asia/Singapore', 'MY')).toBe('SG'); // a guest in Malaysia joining a Singapore meetup still gets OneMap
-    expect(searchCountry('Asia/Bangkok', 'SG')).toBeUndefined(); // someone in Singapore planning a Bangkok meetup isn't held to Singapore
-    expect(searchCountry('Asia/Kuala_Lumpur', 'MY')).toBe('MY');
-    expect(searchCountry('Europe/London', 'XX')).toBeUndefined();
+  it('the meetup decides where to search, not where the person typing is', () => {
+    const singapore = { country: 'SG', lat: 1.3, lng: 103.85 };
+    // Nobody has a starting point yet: the country of the host's time zone.
+    expect(meetupArea('Asia/Kuala_Lumpur', [], singapore)).toEqual({ country: 'MY' }); // someone in Singapore planning a KL meetup
+    expect(meetupArea('Asia/Singapore', [], { country: 'MY', lat: 3.1, lng: 101.7 })).toEqual({ country: 'SG' }); // a guest in KL joining a Singapore meetup
+    expect(meetupArea('Asia/Singapore', [], { country: 'SG', lat: 1.3521, lng: 103.8198 })).toEqual({ country: 'SG', lat: 1.4, lng: 103.8 }); // same country: their rough position helps too
+    expect(meetupArea('Europe/London', [], {})).toEqual({ country: 'GB' });
+    expect(meetupArea('Asia/Calcutta', [], {})).toEqual({ country: 'IN' }); // the old name some browsers still report
+    expect(meetupArea('UTC', [], { country: 'FR' })).toEqual({ country: undefined });
+    // Once anyone has a starting point, the middle of them wins.
+    const kl = meetupArea('Asia/Singapore', [{ lat: 3.1, lng: 101.7 }, { lat: 3.2, lng: 101.6 }], singapore);
+    expect(kl.country).toBeUndefined();
+    expect(Math.abs(kl.lat! - 3.15)).toBeLessThanOrEqual(0.06);
+    expect(Math.abs(kl.lng! - 101.65)).toBeLessThanOrEqual(0.06);
+    expect(meetupArea('Asia/Singapore', [{ lat: 1.30123, lng: 103.85678 }], singapore)).toEqual({ country: undefined, lat: 1.3, lng: 103.9 }); // one person: never their exact start
+  });
+
+  it('a Singapore meetup still finds places across the border: nothing is ruled out', async () => {
+    const { deps, calls } = await setup({ onemap: () => Response.json({ results: [] }) });
+    const found = await findStart(deps, 'JB City Square', { lat: 1.3, lng: 103.85 });
+    expect(found.source).toBe('geoapify'); // OneMap had nothing, so the next service answered
+    const sent = new URL(calls.find((c) => c.url.includes('geoapify'))!.url);
+    expect(sent.searchParams.get('bias')).toBe('proximity:103.85,1.3');
+    expect(sent.searchParams.get('filter')).toBeNull();
+  });
+
+  it('OpenStreetMap prefers the area, or asks within the country first and then anywhere', async () => {
+    const { deps, calls } = await setup();
+    const noGeo = { ...deps, env: { ...deps.env, GEOAPIFY_KEY: undefined } };
+    await findStart(noGeo, 'Petronas Towers', { lat: 3.139, lng: 101.687 });
+    const boxed = new URL(calls.find((c) => c.url.includes('nominatim'))!.url);
+    expect(boxed.searchParams.get('viewbox')).toBe('101.1870,3.6390,102.1870,2.6390');
+    expect(boxed.searchParams.get('bounded')).toBe('0');
+    expect(boxed.searchParams.get('countrycodes')).toBeNull();
   });
 
   it('a meetup outside Singapore never asks OneMap for trip times: the next service answers straight away', async () => {

@@ -9,21 +9,40 @@ export interface StartResult extends Point {
   label: string;
 }
 
-/** What the caller's own network says about where they are. Used only to put nearby results first. */
+/**
+ * Where the meetup is, as best Zorion knows. Used to put nearby results first, never to rule others out:
+ * people near a border (Singapore and Johor Bahru) must still find the other side.
+ */
 export interface Near {
   country?: string; // two-letter code
-  lat?: number;
+  lat?: number; // a point in the meetup's area
   lng?: number;
 }
+const hasPoint = (n: Near): n is Near & { lat: number; lng: number } => n.lat !== undefined && n.lng !== undefined;
 
 const tidy = (q: string): string => q.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120);
 
 async function searchNominatim(deps: Deps, q: string, near: Near): Promise<StartResult[]> {
+  // Nominatim can only prefer an area (a box, not binding); a country it can only require. So with a
+  // point, prefer the box around it; with just a country, ask within it first and then anywhere.
+  if (!hasPoint(near) && near.country && /^[A-Za-z]{2}$/.test(near.country)) {
+    const inside = await nominatim(deps, q, (u) => u.searchParams.set('countrycodes', near.country!.toLowerCase()));
+    if (inside.length) return inside;
+  }
+  return nominatim(deps, q, (u) => {
+    if (hasPoint(near)) {
+      u.searchParams.set('viewbox', [near.lng - 0.5, near.lat + 0.5, near.lng + 0.5, near.lat - 0.5].map((x) => x.toFixed(4)).join(','));
+      u.searchParams.set('bounded', '0');
+    }
+  });
+}
+
+async function nominatim(deps: Deps, q: string, shape: (u: URL) => void): Promise<StartResult[]> {
   const url = new URL(deps.env.NOMINATIM_URL || 'https://nominatim.openstreetmap.org/search');
   url.searchParams.set('format', 'jsonv2');
   url.searchParams.set('limit', '5');
   url.searchParams.set('q', q);
-  if (near.country && /^[A-Za-z]{2}$/.test(near.country)) url.searchParams.set('countrycodes', near.country.toLowerCase());
+  shape(url);
   const res = await deps.fetch(url.toString(), {
     headers: { 'user-agent': 'Zorion/1.0 (zorion.midnightpoetry.studio)', 'accept-language': 'en' },
     signal: AbortSignal.timeout(8000),
@@ -75,8 +94,8 @@ export type LookupSource = 'google' | 'onemap' | 'geoapify' | 'osm';
 export async function findStart(deps: Deps, raw: string, near: Near): Promise<{ results: StartResult[]; source: LookupSource | null }> {
   const q = tidy(raw);
   if (q.length < 3) return { results: [], source: null };
-  // OneMap only knows Singapore. Searches for anywhere else skip it and go straight to the next service.
-  const inSingapore = near.country?.toUpperCase() === 'SG' || (!near.country && near.lat !== undefined && near.lng !== undefined && inSingaporeBounds({ lat: near.lat, lng: near.lng }));
+  // OneMap only knows Singapore. Meetups anywhere else skip it and go straight to the next service.
+  const inSingapore = hasPoint(near) ? inSingaporeBounds(near) : near.country?.toUpperCase() === 'SG';
   const ladder: Array<[LookupSource, () => Promise<StartResult[]>]> = [];
   if ((await activeProvider(deps)) === 'google') ladder.push(['google', async () => {
     if (!(await takeGoogle(deps.db, 'lookup', 1, deps.now()))) throw new Error('Google allowance used');

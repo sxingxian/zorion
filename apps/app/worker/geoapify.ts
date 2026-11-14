@@ -62,8 +62,9 @@ export async function geoapifyPlaces(deps: Deps, center: Point, radius: number, 
 export async function geoapifyLookup(deps: Deps, q: string, near: { country?: string; lat?: number; lng?: number }): Promise<StartResult[]> {
   if (!(await take(deps.db, 'geoapify', 1, deps.now()))) throw new Error('Geoapify allowance used');
   const params = new URLSearchParams({ text: q, limit: '5', format: 'json', apiKey: deps.env.GEOAPIFY_KEY! });
-  if (near.country && /^[A-Za-z]{2}$/.test(near.country)) params.set('filter', `countrycode:${near.country.toLowerCase()}`);
+  // Prefer, never require: near the meetup's area if known, otherwise its country.
   if (near.lat !== undefined && near.lng !== undefined) params.set('bias', `proximity:${near.lng},${near.lat}`);
+  else if (near.country && /^[A-Za-z]{2}$/.test(near.country)) params.set('bias', `countrycode:${near.country.toLowerCase()}`);
   const data = (await call(deps, `${BASE}/v1/geocode/search?${params}`)) as { results?: Array<{ formatted?: string; lat?: number; lon?: number }> };
   return (data.results ?? []).filter((r) => r.formatted && r.lat !== undefined && r.lon !== undefined).slice(0, 5).map((r) => ({ label: r.formatted!.slice(0, 120), lat: r.lat!, lng: r.lon! }));
 }
