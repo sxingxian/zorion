@@ -107,7 +107,7 @@ async function guestView(c: C, L: Loaded, who: Row | null, dateChange: { replies
       email: who.email ? { address: maskEmail(who.email), confirmed: !!who.email_confirmed } : null,
       telegram: !!who.telegram_chat_id,
       id: who.id, name: who.name, rsvp: who.rsvp, rsvpIsDefault: who.rsvp_is_default, dates: who.dates, noDateWorks: who.no_date_works, categories: who.categories, place: who.place,
-      hasLocation: who.lat !== null, joinedLate: who.joined_late, canAmend: !!who.can_amend, showOnMap: !!who.show_on_map,
+      hasLocation: who.lat !== null, startLabel: who.lat !== null ? (who.start_label as string | null) : null, joinedLate: who.joined_late, canAmend: !!who.can_amend, showOnMap: !!who.show_on_map,
       pickedSetDate: s.setDate ? (who.dates as string[]).includes(s.setDate) : null,
     },
   };
@@ -221,10 +221,10 @@ guest.post('/:token/location', async (c) => {
   const L = await open(c);
   const p = await me(c, L);
   replyOnly(L);
-  const at = await body(c, schemas.point);
+  const at = await body(c, schemas.start);
   needAmend(c, p, p.lat !== null);
   await c.get('deps').db.batch([
-    ['update participants set lat = $2, lng = $3 where id = $1', [p.id, at.lat, at.lng]],
+    ['update participants set lat = $2, lng = $3, start_label = $4 where id = $1', [p.id, at.lat, at.lng, at.label || null]],
     ['delete from place_times where participant_id = $1', [p.id]], // routed from the old start, so no longer true
   ]);
   await noteChange(c, L, p, 'location', 'New starting point');

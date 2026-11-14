@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
-import { DEFAULT_MAP_SETTINGS } from '@zorion/core';
+import { AVATAR_ART, AVATAR_VIEWBOX, type Avatar, DEFAULT_MAP_SETTINGS } from '@zorion/core';
 import { api, useConfig } from './lib';
 import { Mascot } from './ui';
 
 /** What the server sends for the crew map (see worker/crewmap.ts). */
 export interface MapData {
+  avatar?: string; // your pig
+  icon?: string | null; // the winning food option's icon
   people: Array<{ id: string; kind: 'you' | 'shared' | 'rough'; name: string | null; lat: number; lng: number; host: boolean }>;
   middle: { lat: number; lng: number } | null;
   places: Array<{ id: string; n: number; name: string; lat: number; lng: number; chosen: boolean }>;
@@ -77,6 +79,7 @@ export function MeetupMap({ source, version, height = 320, compact = false }: { 
     <div className="mapwrap" style={{ height }}>
       {flat && data ? <FlatMap data={data} /> : <div ref={box} className="map3d" role="img" aria-label="Map: routes from everyone to the middle" />}
       {!data && <div className="maploading"><Mascot size={48} bob label="Loading the map" /></div>}
+      {data && data.dest?.kind !== 'place' && !data.people.some((p) => p.kind === 'you') && <div className="map-hint"><i aria-hidden="true" />Add your start to see your route</div>}
       {!flat && engine.current && !compact && (
         <div className="mapctl">
           <button className="sq" aria-label={three ? 'Switch to 2D' : 'Switch to 3D'} onClick={() => { const next = !three; setThree(next); engine.current?.set3d(next); }}>{three ? '2D' : '3D'}</button>
@@ -96,13 +99,19 @@ function FlatMap({ data }: { data: MapData }) {
   const pad = 0.12, w = Math.max(x1 - x0, 0.002), h = Math.max(y1 - y0, 0.002);
   const X = (lng: number) => 8 + ((lng - x0) / w) * 84 * (1 - pad) + 84 * pad / 2;
   const Y = (lat: number) => 8 + (1 - (lat - y0) / h) * 84 * (1 - pad) + 84 * pad / 2;
+  const venue = data.dest?.kind === 'place' ? data.places.find((p) => p.chosen) : undefined;
+  const you = data.people.find((p) => p.kind === 'you');
+  const pig = (data.avatar && data.avatar in AVATAR_ART ? data.avatar : 'plain') as Avatar;
   return (
     <svg className="flatmap" viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Map: routes from everyone to the middle">
       {data.routes.map((r) => <polyline key={r.id} points={r.line.map(([a, b]) => `${X(a)},${Y(b)}`).join(' ')} fill="none" stroke={r.kind === 'rough' ? '#6b6b74' : '#0b0b0d'} strokeWidth={r.kind === 'you' ? 1.4 : 1} strokeDasharray="2.4 1.6" className="march" />)}
       {data.people.filter((p) => p.kind === 'rough').map((p) => <circle key={p.id} cx={X(p.lng)} cy={Y(p.lat)} r={5} fill="rgba(11,11,13,0.1)" stroke="rgba(11,11,13,0.4)" strokeDasharray="1 1" strokeWidth={0.5} />)}
-      {data.middle && data.dest?.kind !== 'place' && <circle cx={X(data.middle.lng)} cy={Y(data.middle.lat)} r={4} fill="#ffa6fc" stroke="#fff" strokeWidth={1} />}
-      {data.places.map((p) => <g key={p.id}><circle cx={X(p.lng)} cy={Y(p.lat)} r={p.chosen ? 3.4 : 2.8} fill={p.chosen ? '#0b0b0d' : '#fff'} stroke="#0b0b0d" strokeWidth={0.6} /><text x={X(p.lng)} y={Y(p.lat) + 1.1} fontSize={3} textAnchor="middle" fontWeight={800} fill={p.chosen ? '#fff' : '#0b0b0d'}>{p.n}</text></g>)}
-      {data.people.filter((p) => p.kind !== 'rough').map((p) => <g key={p.id}><circle cx={X(p.lng)} cy={Y(p.lat)} r={2} fill="#0b0b0d" stroke="#fff" strokeWidth={0.8} /><text x={X(p.lng)} y={Y(p.lat) - 3.4} fontSize={3.2} textAnchor="middle" fontWeight={800}>{p.kind === 'you' ? 'You' : p.name}</text></g>)}
+      {data.middle && !venue && <g><circle cx={X(data.middle.lng)} cy={Y(data.middle.lat)} r={3} fill="#fff" stroke="#0b0b0d" strokeWidth={0.8} /><circle cx={X(data.middle.lng)} cy={Y(data.middle.lat)} r={0.9} fill="#0b0b0d" /></g>}
+      {venue ? (
+        <g><circle cx={X(venue.lng)} cy={Y(venue.lat)} r={3.6} fill="#ffa6fc" stroke="#0b0b0d" strokeWidth={0.8} /><text x={X(venue.lng)} y={Y(venue.lat) - 5} fontSize={3.2} textAnchor="middle" fontWeight={800}>{venue.name}</text></g>
+      ) : data.places.map((p) => <g key={p.id}><circle cx={X(p.lng)} cy={Y(p.lat)} r={2.8} fill="#fff" stroke="#0b0b0d" strokeWidth={0.6} /><text x={X(p.lng)} y={Y(p.lat) + 1.1} fontSize={3} textAnchor="middle" fontWeight={800}>{p.n}</text></g>)}
+      {data.people.filter((p) => p.kind === 'shared').map((p) => <g key={p.id}><circle cx={X(p.lng)} cy={Y(p.lat)} r={2.4} fill="#0b0b0d" stroke="#fff" strokeWidth={0.8} /><text x={X(p.lng) + 3.6} y={Y(p.lat) + 1.1} fontSize={3.2} fontWeight={800}>{p.name}</text></g>)}
+      {you && <g><circle cx={X(you.lng)} cy={Y(you.lat)} r={4.6} fill="#fff" stroke="#0b0b0d" strokeWidth={0.8} /><svg x={X(you.lng) - 4} y={Y(you.lat) - 4} width={8} height={8} viewBox={AVATAR_VIEWBOX} dangerouslySetInnerHTML={{ __html: AVATAR_ART[pig] }} /><text x={X(you.lng)} y={Y(you.lat) + 8} fontSize={3.2} textAnchor="middle" fontWeight={800}>You</text></g>}
     </svg>
   );
 }

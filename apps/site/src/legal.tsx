@@ -34,11 +34,12 @@ export function Privacy() {
       <h2>Where you are starting from</h2>
       <ul>
         <li>You give it once per meetup, either by sharing your device's location or by typing a place.</li>
+        <li>If you type a place, its name is kept with it so you can see what you picked. Only you see the name.</li>
         <li>It is used to work out the fair middle and your own travel time.</li>
         <li>On the crew map, others see only a rough area about 1 km wide, with no name, its centre moved by a fixed random amount, and a route line that starts at its edge. That includes the host.</li>
         <li>If you turn on "Show me on the crew map", the others in this meetup see your exact starting point and your name. You can turn it off at any time.</li>
         <li>The middle is only shown once three or more people have added a start.</li>
-        <li>It is erased when the meetup ends, which is 24 hours after its start time. A meetup that never gets a date ends 30 days after its last change. The rest of the meetup is deleted 90 days after it ends.</li>
+        <li>It, and the name of a typed place, is erased when the meetup ends, which is 24 hours after its start time. A meetup that never gets a date ends 30 days after its last change. The rest of the meetup is deleted 90 days after it ends.</li>
       </ul>
 
       <h2>What Zorion keeps</h2>

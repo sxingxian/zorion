@@ -63,6 +63,9 @@ html, body { overflow-x: hidden; }
 .stack { display: flex; flex-direction: column; gap: 8px; }
 .row { display: flex; align-items: center; gap: 10px; }
 .between { justify-content: space-between; }
+.startcard .grid2 .btn { font-size: 15px; padding: 0 10px; white-space: nowrap; }
+.linkbtn { min-height: 44px; padding: 0 2px; border: 0; background: none; color: var(--text); font: inherit; font-size: 14px; font-weight: 700; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+.linkbtn[disabled] { color: var(--muted); cursor: default; }
 .grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .grid3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
 .grid4 { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
@@ -246,15 +249,27 @@ html, body { overflow-x: hidden; }
 .maploading { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
 .mapctl { position: absolute; right: 10px; top: 10px; display: flex; flex-direction: column; gap: 8px; z-index: 2; }
 .mapctl .sq { background: var(--bg); box-shadow: 0 1px 4px rgba(11, 11, 13, 0.18); font-weight: 800; font-size: 13px; }
-.mk { display: flex; flex-direction: column; align-items: center; pointer-events: none; }
-.mk-stem { width: 3px; height: 12px; background: #0b0b0d; }
-.mk-pill { background: #0b0b0d; color: #fff; font: 800 13px var(--font); padding: 5px 10px; border-radius: 10px; border: 2px solid #fff; white-space: nowrap; animation: pop 0.4s var(--ease) backwards; }
-.mk-pill.light { background: #fff; color: #0b0b0d; border-color: #0b0b0d; }
+.mk { position: relative; display: flex; align-items: center; justify-content: center; pointer-events: none; }
+/* MapLibre places each marker with its own transform, so the pop-in runs on what's inside. */
+.mk > :first-child { animation: pop 0.4s var(--ease) backwards; }
+/* Labels hang outside the marker's round part, so the round part (or the pin's tip) sits exactly on the point. */
+.mk-tag { position: absolute; left: 50%; transform: translateX(-50%); background: #0b0b0d; color: #fff; font: 800 12px var(--font); padding: 3px 8px; border-radius: 8px; border: 2px solid #fff; white-space: nowrap; max-width: 180px; overflow: hidden; text-overflow: ellipsis; }
+.mk-tag.light { background: #fff; color: #0b0b0d; border-color: #0b0b0d; }
+.mk-tag.below { top: calc(100% - 6px); }
+.mk-tag.above { bottom: calc(100% + 2px); font-size: 13px; padding: 4px 10px; }
+.mk-tag.right { left: calc(100% + 4px); transform: none; top: 50%; translate: 0 -50%; }
+.mk-you { width: 48px; height: 48px; border-radius: 50%; background: #fff; border: 3px solid #0b0b0d; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 12px rgba(11, 11, 13, 0.28); box-sizing: border-box; overflow: hidden; }
+.mk-ini { width: 32px; height: 32px; border-radius: 50%; background: #0b0b0d; color: #fff; font: 800 13px var(--font); display: flex; align-items: center; justify-content: center; border: 3px solid #fff; box-shadow: 0 2px 8px rgba(11, 11, 13, 0.22); box-sizing: border-box; }
+.mk-mid { position: relative; width: 30px; height: 30px; border-radius: 50%; background: #fff; border: 3px solid #0b0b0d; box-sizing: border-box; display: flex; align-items: center; justify-content: center; box-shadow: 0 0 0 6px rgba(255, 166, 252, 0.45); }
+.mk-mid::after { content: ''; width: 8px; height: 8px; border-radius: 50%; background: #0b0b0d; }
+.mk-mid.small { width: 22px; height: 22px; border-width: 2.5px; box-shadow: none; }
+.mk-mid.small::after { width: 6px; height: 6px; }
+.mk-num { width: 28px; height: 28px; border-radius: 50%; background: #fff; color: #0b0b0d; border: 2.5px solid #0b0b0d; font: 800 13px var(--font); display: flex; align-items: center; justify-content: center; box-sizing: border-box; box-shadow: 0 2px 6px rgba(11, 11, 13, 0.18); }
+.mk-venue { display: block; color: #0b0b0d; filter: drop-shadow(0 5px 8px rgba(11, 11, 13, 0.28)); }
+.map-hint { position: absolute; left: 12px; top: 12px; z-index: 4; display: flex; align-items: center; gap: 8px; background: #fff; color: #0b0b0d; font: 700 13px var(--font); padding: 8px 12px; border-radius: 12px; box-shadow: 0 4px 14px rgba(11, 11, 13, 0.16); pointer-events: none; }
+.map-hint i { width: 10px; height: 10px; border-radius: 50%; border: 2px dashed currentColor; }
 .mk-dot { width: 11px; height: 11px; border-radius: 50%; background: #fff; border: 2.5px solid #0b0b0d; pointer-events: none; }
 .mk-dot.you { width: 14px; height: 14px; background: #ffa6fc; }
-.mk-num { width: 30px; height: 30px; border-radius: 15px; background: #fff; color: #0b0b0d; border: 3px solid #0b0b0d; font: 800 13px var(--font); display: flex; align-items: center; justify-content: center; box-sizing: border-box; animation: pop 0.4s var(--ease) backwards; }
-.mk-num.on { width: 36px; height: 36px; border-radius: 18px; background: #0b0b0d; color: #fff; }
-.mk-mid { width: 50px; height: 50px; border-radius: 25px; background: #ffa6fc; border: 4px solid #fff; display: flex; align-items: center; justify-content: center; box-sizing: border-box; box-shadow: 0 2px 10px rgba(11, 11, 13, 0.2); }
 .flatmap .march { animation: dash 1.2s linear infinite; }
 .maplibregl-ctrl-attrib { font-size: 10px; }
 

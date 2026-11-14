@@ -181,7 +181,12 @@ export async function mapView(deps: Deps, L: Loaded, me: Row | null, places: Row
   const dest = destination(L);
   const routes = await crewRoutes(deps, L, people, dest);
   const centre = dest?.at ?? (me && me.lat !== null ? { lat: Number(me.lat), lng: Number(me.lng) } : people[0] ? { lat: people[0].lat, lng: people[0].lng } : null);
+  // Your own marker is your pig: the host's chosen pig, or the plain pig for a guest (guests have no account).
+  const avatar = me?.is_host ? String((await deps.db.query('select avatar from users where id = $1', [L.m.host_id]))[0]?.avatar ?? 'chef') : 'plain';
+  const icon = L.m.winning_category ? (L.cats.find((cat) => cat.key === L.m.winning_category)?.icon as string | undefined) ?? null : null;
   return {
+    avatar,
+    icon, // the winning food option's icon, shown on the pin where you're meeting
     people: people.map(({ id, kind, name, lat, lng, host }) => ({ id, kind, name, lat, lng, host })),
     middle: middleOf(L),
     places: places.map((p, i) => ({ id: p.id, n: i + 1, name: p.name, lat: Number(p.lat), lng: Number(p.lng), chosen: p.id === L.m.chosen_place })),
