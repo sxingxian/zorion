@@ -21,7 +21,12 @@ export default defineConfig({
     launchOptions: {
       // E2E_CHROME points at an installed Chrome; otherwise Playwright's own Chromium is used.
       executablePath: process.env.E2E_CHROME || undefined,
-      args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'],
+      // Map tiles come from outside free services. Tests never call them: the same result locally and on
+      // GitHub, no load on those services, and the map falls back as it would if they were all down.
+      args: [
+        '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist',
+        '--host-resolver-rules=MAP www.onemap.gov.sg ~NOTFOUND, MAP tiles.openfreemap.org ~NOTFOUND, MAP tiles.versatiles.org ~NOTFOUND, MAP *.maptoolkit.org ~NOTFOUND',
+      ],
     },
   },
   webServer: {

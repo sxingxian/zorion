@@ -69,6 +69,8 @@ export function createMap(container: HTMLElement, first: MapData, settings: MapS
     attributionControl: { compact: true },
     cooperativeGestures: opts.compact,
     maxPitch: 70,
+    // Sharp enough on any screen; drawing at 3x on high-density phones costs over twice the work for no visible gain.
+    pixelRatio: Math.min(window.devicePixelRatio || 1, 2),
   });
 
   // A tile service that keeps failing is swapped for the next in the admin's order.

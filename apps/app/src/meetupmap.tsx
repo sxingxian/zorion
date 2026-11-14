@@ -26,7 +26,8 @@ const webgl = (): boolean => {
 
 /**
  * The crew map: everyone's route to the middle (or the place, once it's set), in 3D.
- * The map engine loads only when a map is on screen. Without WebGL, a flat drawing stands in.
+ * The map engine loads only when a map is near the screen. Without WebGL, or when every tile service
+ * keeps failing, a flat drawing stands in.
  */
 export function MeetupMap({ source, version, height = 320, compact = false }: { source: string; version: string; height?: number; compact?: boolean }) {
   const config = useConfig();
@@ -44,18 +45,30 @@ export function MeetupMap({ source, version, height = 320, compact = false }: { 
     return () => { live = false; };
   }, [source, version]);
 
+  // The engine starts only once the map is near the screen, so a map further down costs nothing.
+  const [near, setNear] = useState(false);
   useEffect(() => {
-    if (!data || !box.current || flat || !config) return;
+    if (near || !box.current) return;
+    const watch = new IntersectionObserver(([e]) => { if (e?.isIntersecting) { setNear(true); watch.disconnect(); } }, { rootMargin: '200px' });
+    watch.observe(box.current);
+    return () => watch.disconnect();
+  }, [near, data]);
+
+  // When the tiles keep failing, the engine is shut down and the flat drawing takes over.
+  const fail = () => { engine.current?.destroy(); engine.current = null; setFlat(true); };
+
+  useEffect(() => {
+    if (!data || !box.current || flat || !config || !near) return;
     if (engine.current) { engine.current.update(data); return; }
     if (!webgl()) { setFlat(true); return; }
     let cancelled = false;
     import('./map3d').then(({ createMap }) => {
       if (cancelled || !box.current) return;
-      engine.current = createMap(box.current, data, settings, { compact, onFail: () => setFlat(true) });
+      engine.current = createMap(box.current, data, settings, { compact, onFail: fail });
       setThree(settings.start3d);
     }).catch(() => setFlat(true));
     return () => { cancelled = true; };
-  }, [data, flat, config]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [data, flat, config, near]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => () => { engine.current?.destroy(); engine.current = null; }, []);
 

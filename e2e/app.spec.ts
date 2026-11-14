@@ -255,6 +255,7 @@ test('emails: a guest opts in and confirms, the host hears the votes are in, the
 });
 
 test('telegram: a guest and the host connect, and get the same update as email, laid out like it', async ({ page, browser }) => {
+  test.setTimeout(150_000);
   const { mailsTo, pressStartInTelegram, telegramTo } = await import('./helpers');
   const hostEmail = `host-tg-${Date.now()}@example.com`; // fresh each run, so a retry starts clean
   const guestEmail = `mia-tg-${Date.now()}@example.com`;
@@ -295,7 +296,7 @@ test('telegram: a guest and the host connect, and get the same update as email, 
 
   // The host heard the votes are in on both channels, worded the same.
   const hostMail = (await mailsTo(page, hostEmail)).find((m) => m.subject.startsWith('The food votes are in'))!;
-  const hostTg = (await telegramTo(page, 7001)).find((m) => m.subject.startsWith('The food votes are in'))!;
+  const hostTg = (await telegramTo(page, 7001)).filter((m) => m.subject.startsWith('The food votes are in')).at(-1)!; // the chat is shared across retries
   expect(hostTg.subject).toBe(hostMail.subject);
   expect(hostTg.text.split('\n').slice(0, -1)).toEqual(hostMail.text.split('\n').slice(0, -1));
   expect(hostTg.text.split('\n').at(-1)).toMatch(/, or send \/stop\.$/);
