@@ -82,7 +82,7 @@ Hosts sign in with a 6-digit code by email, and hosts and guests can ask for upd
 
 1. Create a Resend account and verify the domain `app.midnightpoetry.studio` with the DNS records it asks for (SPF/DKIM).
 2. Create an API key with **sending access only**.
-3. Admin portal → **Email**: paste the key, keep the sender `Zorion <noreply@app.midnightpoetry.studio>` (or another address on that domain), enter your authenticator code and save. Press **Send me a test email**.
+3. Admin portal → **Email**: paste the key, keep the sender `Zorion <noreply@app.midnightpoetry.studio>` (or another address on that domain) and press **Connect**. It asks for your authenticator code. Then press **Send me a test**.
 
 Until a key is saved, nobody can sign in in production: codes are only shown on screen in development.
 
@@ -101,8 +101,8 @@ How email is used:
 1. Create the Stripe account for the business and finish activation (business details, bank account).
 2. Settings → Billing → **Customer portal**: allow cancelling and updating payment methods.
 3. Developers → API keys → copy the secret key (`sk_live_…`, or `sk_test_…` to rehearse).
-4. Admin portal → **Payments**: paste the key, enter your authenticator code, **Save key**, then **Connect webhook**. Zorion creates the webhook in Stripe itself and keeps its signing secret. **Check connection** shows the account, whether it can take payments, and the webhook.
-5. Admin portal → **Plans & prices**: set the monthly and yearly price in SGD, and what Free and Pro include. Save.
+4. Admin portal → **Payments**: paste the key and press **Connect**, then enter your authenticator code. Zorion saves the key and creates the webhook in Stripe itself. The page then shows the account, whether it can take payments, and whether the webhook is receiving.
+5. Admin portal → **Plans**: type the monthly and yearly price in SGD (typing a price puts it on sale), set what Free and Pro include, and press **Save** in the bar at the bottom.
 
 No Stripe product or price has to be made by hand: checkout uses the prices from the portal. Until a key and a price are saved, the Pro screen says Pro isn't on sale yet. A plan changes only when a signed webhook says so, never because the browser says so. Rehearse with a test key first, then save the live key and press **Reconnect webhook**.
 
@@ -117,7 +117,7 @@ Admins can't sign up. Create the first one in the browser:
 
 Setup closes for good once any admin exists, even with the right token. Five wrong tokens pause it for 30 minutes, and every try is in the audit log.
 
-From then on, admins always sign in with password, then authenticator. Sensitive actions (suspending or deleting a host, any change to ads) need a second admin's approval once there are two. Changing a key (Stripe, Telegram, email) needs a super admin and a fresh authenticator code. To add an admin: **Admins & log** → Invite an admin. Send them the link; it works once, for 24 hours, and they set their own password and authenticator.
+From then on, admins always sign in with password, then authenticator. Sensitive actions (suspending or deleting a host, any change to ads) need a second admin's approval once there are two. Changing a key (Stripe, Telegram, email) needs a super admin and a fresh authenticator code. To add an admin: **Admins** → **Invite**. Send them the link; it works once, for 24 hours, and they set their own password and authenticator.
 
 ## 7. Google ads (in the app, for Free users)
 

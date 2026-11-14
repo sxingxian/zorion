@@ -84,6 +84,16 @@ describe('keys set in the admin portal', () => {
     expect((await b('POST', '/payments/check')).body.account).toMatchObject({ name: 'Midnight Poetry', charges: true });
   });
 
+  it('connects Stripe in one step: the key and the webhook under one authenticator code', async () => {
+    await db.query("delete from settings where key in ('env:STRIPE_SECRET_KEY', 'env:STRIPE_WEBHOOK_SECRET')");
+    calls.length = 0;
+    expect((await b('PUT', '/payments/key', { secretKey: TEST_KEY, code: await nextCode(), connect: true })).body).toEqual({ ok: true });
+    expect(calls.some((c) => c.url.endsWith('webhook_endpoints') && c.body?.includes('customer.subscription.updated'))).toBe(true);
+    const s = await loadSettings(db, env.TOTP_KEY);
+    expect(s.STRIPE_SECRET_KEY).toBe(TEST_KEY);
+    expect(s.STRIPE_WEBHOOK_SECRET).toBe(['whsec', 'newsecret1234'].join('_'));
+  });
+
   it('connects a Telegram bot from its token alone', async () => {
     const r = await b('PUT', '/telegram', { token: '123456789:AAHsomeLongBotTokenValue_1234567890ab', code: await nextCode() });
     expect(r.body).toEqual({ ok: true, username: 'ZorionMeetBot' });
