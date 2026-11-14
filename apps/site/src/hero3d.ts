@@ -1,5 +1,6 @@
-// The landing hero as a small 3D city: five friends, the roads between them, and the fair middle.
+// The landing hero as a small 3D city: six friends, the roads between them, and the fair middle.
 // Loaded on demand. If WebGL is missing or the visitor prefers reduced motion, the drawn map stays.
+// The camera is shifted every frame so the fair middle lands under `target` (the standing pig).
 import {
   AmbientLight, BoxGeometry, CanvasTexture, CircleGeometry, Color, ConeGeometry, DirectionalLight, Group, InstancedMesh, Matrix4, Mesh,
   MeshBasicMaterial, MeshLambertMaterial, PerspectiveCamera, PlaneGeometry, Quaternion, SRGBColorSpace, Scene, SphereGeometry, Sprite, SpriteMaterial,
@@ -10,10 +11,11 @@ const INK = 0x0b0b0d;
 const PINK = 0xffa6fc;
 
 // Blocks sit on whole numbers, so roads run along the halves. Everything that walks stays on a half.
-const COLS = 17; // blocks reach from -COLS to COLS on x
-const ROWS = 13; // and from -ROWS to ROWS on z
+const COLS = 22; // blocks reach from -COLS to COLS on x
+const ROWS = 18; // and from -ROWS to ROWS on z
 const MIDDLE = new Vector3(1.5, 0, -0.5);
-const CREW: Array<[letter: string, x: number, z: number]> = [['M', -4.5, -2.5], ['S', -1.5, -3.5], ['A', 4.5, -3.5], ['L', 6.5, 0.5], ['P', -0.5, 3.5]];
+// Same six friends as the drawn map. Most stand behind the middle, so they show above the pig, not under it.
+const CREW: Array<[letter: string, x: number, z: number]> = [['M', -9.5, -5.5], ['J', 5.5, -9.5], ['S', -7.5, -0.5], ['L', 1.5, -12.5], ['P', -3.5, 2.5], ['D', 7.5, -3.5]];
 
 /** Same numbers on every visit, so the skyline does not reshuffle. */
 function seeded(seed: number): () => number {
@@ -49,10 +51,10 @@ function along(path: Vector3[], t: number, out: Vector3): Vector3 {
 }
 
 /**
- * Draws the scene into `box`. `anchor`, if given, is moved every frame to stand on the fair middle,
- * so the page's own mascot can stand in the scene. Returns a function that stops and frees everything.
+ * Draws the scene into `box`. The fair middle is kept under the bottom centre of `target`, so the
+ * page's own mascot stands on it. Returns a function that stops and frees everything.
  */
-export function mountHero(box: HTMLElement, anchor: HTMLElement | null, onReady: () => void): () => void {
+export function mountHero(box: HTMLElement, target: HTMLElement | null, onReady: () => void): () => void {
   const renderer = new WebGLRenderer({ antialias: true, alpha: false, powerPreference: 'low-power' });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
   renderer.setClearColor(0xffffff);
@@ -143,24 +145,26 @@ export function mountHero(box: HTMLElement, anchor: HTMLElement | null, onReady:
     return g;
   });
 
-  const camera = new PerspectiveCamera(30, 1, 0.1, 120);
+  const camera = new PerspectiveCamera(30, 1, 0.1, 140);
   let w = 0;
   let h = 0;
-  let wide = true;
+  // Where the middle should land, in pixels inside the box.
+  let tx = 0;
+  let ty = 0;
   const fit = () => {
     w = box.clientWidth;
     h = box.clientHeight;
     if (!w || !h) return;
-    wide = w / h > 1;
     renderer.setSize(w, h, false);
     camera.aspect = w / h;
-    // Leave room for the headline card: scene to the right on wide screens, to the top on tall ones.
-    if (wide) camera.setViewOffset(w, h, -w * 0.17, h * 0.02, w, h);
-    else camera.setViewOffset(w, h, 0, h * 0.16, w, h);
-    camera.updateProjectionMatrix();
+    const b = box.getBoundingClientRect();
+    const r = target?.getBoundingClientRect();
+    tx = r && r.width ? r.left + r.width / 2 - b.left : w / 2;
+    ty = r && r.height ? r.bottom - r.height * 0.06 - b.top : h * 0.62;
   };
   const ro = new ResizeObserver(fit);
   ro.observe(box);
+  if (target) ro.observe(target);
   fit();
 
   let pointerX = 0;
@@ -192,20 +196,21 @@ export function mountHero(box: HTMLElement, anchor: HTMLElement | null, onReady:
     easedX += (pointerX - easedX) * 0.05;
     easedY += (pointerY - easedY) * 0.05;
     // A slow drift, a nudge from the pointer, and a dive toward street level as the page scrolls.
-    const dist = wide ? 21 : 38;
+    const dist = w < 600 ? 31 : 24; // phones show the map as a small block, so step back to fit everyone
     const lift = 0.86 - scrolled * 0.34 + easedY * 0.05;
     const turn = 0.5 + Math.sin(t * 0.12) * 0.07 + easedX * 0.22 + scrolled * 0.35;
     look.set(MIDDLE.x, 0, MIDDLE.z);
     camera.position.set(look.x + Math.sin(turn) * Math.cos(lift) * dist, Math.sin(lift) * dist, look.z + Math.cos(turn) * Math.cos(lift) * dist);
     camera.lookAt(look);
+    // Slide the picture so the middle sits under the pig. Pixels can only shift, so this keeps the angle.
+    camera.clearViewOffset();
+    camera.updateMatrixWorld();
+    feet.copy(look).project(camera);
+    camera.setViewOffset(w, h, ((feet.x + 1) / 2) * w - tx, ((1 - feet.y) / 2) * h - ty, w, h);
     disc.scale.setScalar(1 + Math.sin(t * 1.6) * 0.06);
     pins.forEach((p, i) => { p.position.y = 0.12 + Math.sin(t * 1.4 + i * 1.3) * 0.08; });
     walkers.forEach((wk, i) => { along(paths[i]!, (t * 0.11 + i * 0.21) % 1, spot); wk.position.set(spot.x, 0.13, spot.z); });
     renderer.render(scene, camera);
-    if (anchor) {
-      feet.set(MIDDLE.x, 0.2, MIDDLE.z).project(camera);
-      anchor.style.transform = `translate3d(${((feet.x + 1) / 2) * w}px, ${((1 - feet.y) / 2) * h}px, 0)`;
-    }
     if (first) {
       first = false;
       onReady();
@@ -227,6 +232,5 @@ export function mountHero(box: HTMLElement, anchor: HTMLElement | null, onReady:
     });
     renderer.dispose();
     canvas.remove();
-    if (anchor) anchor.style.transform = '';
   };
 }

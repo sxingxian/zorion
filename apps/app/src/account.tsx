@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
-import { LIMITS } from '@zorion/core';
-import { type Me, type ModeChoice, api, navigate, useAction, useSession } from './lib';
-import { Btn, Check, Chip, Codes, Facts, Field, Header, Mascot, Note, Oops, Seg, Switch, Toast } from './ui';
+import { LIMITS, type Plans, TRAVEL_LABEL, formatPrice } from '@zorion/core';
+import { type Me, type ModeChoice, api, navigate, useAction, useConfig, useSession } from './lib';
+import { Btn, Check, Chip, Codes, Facts, Field, Header, Loading, Mascot, Note, Oops, Seg, Switch, Toast } from './ui';
 import { TelegramLink } from './updates';
 
 /** The sign-in key as a QR code. Drawn on this device, so the key is never sent to an image service. */
@@ -51,6 +51,7 @@ export function Account({ me, modeChoice, setMode }: { me: Me; modeChoice: ModeC
   }, [tgLink, refresh]);
   useEffect(() => { if (me.telegram) setTgLink(null); }, [me.telegram]);
   const pro = me.plan === 'pro';
+  const gold = me.features.goldTheme;
   const go = (v: typeof view) => { clear(); setCode(''); setView(v); };
   const patch = (body: unknown) => run(async () => { await api('PATCH', '/account', body); await refresh(); });
 
@@ -141,13 +142,13 @@ export function Account({ me, modeChoice, setMode }: { me: Me; modeChoice: ModeC
       <main className="screen" style={{ gap: 12 }}>
         <div className="stack">
           <span className="label">Theme</span>
-          <Seg value={pro ? me.theme : 'pink'} onChange={(theme) => patch({ theme })} options={pro ? [{ value: 'gold', label: 'Gold' }, { value: 'pink', label: 'Pink' }] : [{ value: 'pink', label: 'Pink' }, { value: 'gold', label: 'Gold', locked: true }]} />
+          <Seg value={gold ? me.theme : 'pink'} onChange={(theme) => patch({ theme })} options={gold ? [{ value: 'gold', label: 'Gold' }, { value: 'pink', label: 'Pink' }] : [{ value: 'pink', label: 'Pink' }, { value: 'gold', label: 'Gold', locked: true }]} />
           <span className="label" style={{ marginTop: 4 }}>Appearance</span>
           <Seg value={modeChoice} onChange={setMode} options={[{ value: 'light', label: 'Light' }, { value: 'dark', label: 'Dark' }, { value: 'auto', label: 'Match device' }]} />
-          <p className="small">{pro ? 'No ads in either theme.' : 'Gold comes with Pro.'}</p>
+          {!gold && <p className="small">Gold comes with Pro.</p>}
         </div>
         <div className="card row between" style={{ padding: '12px 14px' }}>
-          <div className="stack" style={{ gap: 0 }}><strong style={{ fontWeight: 800 }}>{pro ? 'Pro plan' : 'Free plan'}</strong><span className="small">{pro ? 'No ads' : 'With ads'}</span></div>
+          <div className="stack" style={{ gap: 0 }}><strong style={{ fontWeight: 800 }}>{pro ? 'Pro plan' : 'Free plan'}</strong><span className="small">{me.features.ads ? 'With ads' : 'No ads'}</span></div>
           {pro ? <button className="btn" style={{ width: 'auto', minHeight: 44, fontSize: 14, background: 'var(--sel)', color: 'var(--sel-text)' }} disabled={busy} onClick={() => run(async () => { location.href = (await api('POST', '/billing/portal')).url; })}>Manage</button> : <a className="btn" style={{ width: 'auto', minHeight: 44, fontSize: 14, background: 'var(--sel)', color: 'var(--sel-text)' }} href="/pro" onClick={(e) => { e.preventDefault(); navigate('/pro'); }}>Go Pro</a>}
         </div>
         <div className="row" style={{ alignItems: 'flex-end' }}><div className="grow"><Field label="Your name on meetups" value={name} max={LIMITS.inviteeName} onChange={setName} /></div><button className="btn second" style={{ width: 'auto', minHeight: 52 }} disabled={busy || !name.trim() || name.trim() === me.display_name} onClick={async () => (await patch({ displayName: name })) && setToast('Name saved')}>Save</button></div>
@@ -176,25 +177,43 @@ export function Account({ me, modeChoice, setMode }: { me: Me; modeChoice: ModeC
   );
 }
 
-const BENEFITS = ['No ads', 'Bigger groups', 'Transit and cycling times', 'Your own food options', 'Gold theme for you and your guests'];
+/** What Pro adds over Free, worded from the plans set in the admin portal. */
+function benefits(plans: Plans): string[] {
+  const { free, pro } = plans;
+  const out: string[] = [];
+  if (free.ads && !pro.ads) out.push('No ads');
+  if (pro.groupSize > free.groupSize) out.push(`Groups of up to ${pro.groupSize} (Free: ${free.groupSize})`);
+  if (free.activeMeetups > 0 && (pro.activeMeetups === 0 || pro.activeMeetups > free.activeMeetups)) out.push(pro.activeMeetups === 0 ? 'Any number of meetups at a time' : `${pro.activeMeetups} meetups at a time`);
+  const extra = pro.travel.filter((m) => !free.travel.includes(m));
+  if (extra.length) out.push(`${extra.map((m, i) => (i ? TRAVEL_LABEL[m].toLowerCase() : TRAVEL_LABEL[m])).join(' and ')} times`);
+  if (pro.ownCategories && !free.ownCategories) out.push('Your own food options');
+  if (pro.goldTheme && !free.goldTheme) out.push(pro.guestTheme && !free.guestTheme ? 'Gold theme for you and your guests' : 'Gold theme');
+  else if (pro.guestTheme && !free.guestTheme) out.push('Gold theme for your guests');
+  return out;
+}
 
 export function Pro({ me }: { me: Me }) {
+  const config = useConfig();
   const [period, setPeriod] = useState<'yearly' | 'monthly'>('yearly');
   const [run, busy, error] = useAction();
+  const price = config?.plans.price;
+  const options = (['yearly', 'monthly'] as const).filter((p) => !price || price[p] > 0);
+  useEffect(() => { if (price && !price[period] && options[0]) setPeriod(options[0]); }, [price, period, options]);
+  const onSale = !!price && (price.monthly > 0 || price.yearly > 0);
   return (
     <main className="screen" style={{ padding: '20px 20px 26px', gap: 16 }}>
       <div className="row" style={{ justifyContent: 'flex-end' }}><a className="sq" href="/" aria-label="Close" onClick={(e) => { e.preventDefault(); navigate('/'); }}>✕</a></div>
-      <div className="stack center" style={{ alignItems: 'center', gap: 10 }}><Mascot size={128} bob label="Zorion in gold star sunglasses" /><h1 className="display h0">Zorion Pro</h1><p className="small" style={{ fontSize: 15 }}>Everything in Free, plus:</p></div>
-      <ul className="stack" style={{ listStyle: 'none', margin: 0, padding: 0, gap: 10 }}>{BENEFITS.map((b, i) => <li key={b} className="row rise" style={{ animationDelay: `${0.1 + i * 0.08}s` }}><Check />{b}</li>)}</ul>
-      {me.plan === 'pro' ? <Note ok>You're on Pro.</Note> : (
+      <div className="stack center" style={{ alignItems: 'center', gap: 10 }}><Mascot size={128} bob label="Zorion in gold star sunglasses" /><h1 className="display h0">Zorion Pro</h1></div>
+      {config && <ul className="stack" style={{ listStyle: 'none', margin: 0, padding: 0, gap: 10 }}>{benefits(config.plans).map((b, i) => <li key={b} className="row rise" style={{ animationDelay: `${0.1 + i * 0.08}s` }}><Check />{b}</li>)}</ul>}
+      {me.plan === 'pro' ? <Note ok>You're on Pro.</Note> : !config ? <Loading /> : !onSale ? <Note>Pro isn't on sale yet.</Note> : (
         <>
           <div className="grid2" role="radiogroup" aria-label="Billing period">
-            {(['yearly', 'monthly'] as const).map((p) => <button key={p} className="theme-tile" style={{ minHeight: 72 }} role="radio" aria-checked={period === p} aria-pressed={period === p} onClick={() => setPeriod(p)}><span style={{ fontSize: 13, fontWeight: 700 }}>{p === 'yearly' ? 'Yearly' : 'Monthly'}</span><span className="small">{p === 'yearly' ? 'Best value' : 'Cancel any time'}</span></button>)}
+            {options.map((p) => <button key={p} className="theme-tile" style={{ minHeight: 72 }} role="radio" aria-checked={period === p} aria-pressed={period === p} onClick={() => setPeriod(p)}><span style={{ fontSize: 13, fontWeight: 700 }}>{p === 'yearly' ? 'Yearly' : 'Monthly'}</span><span style={{ fontWeight: 800 }}>{formatPrice(price![p])}{p === 'yearly' ? ' / year' : ' / month'}</span></button>)}
           </div>
           <Oops>{error}</Oops>
           <div className="push stack" style={{ gap: 10 }}>
             <Btn busy={busy} onClick={() => run(async () => { location.href = (await api('POST', '/billing/checkout', { period })).url; })}>Continue to payment</Btn>
-            <p className="small center">Price shown at checkout. Paid through Stripe.</p>
+            <p className="small center">Paid through Stripe. Cancel any time.</p>
           </div>
         </>
       )}

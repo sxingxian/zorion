@@ -369,3 +369,44 @@ describe('housekeeping', () => {
     expect(await verifyStripeSignature('{}', sig, 'whsec', new Date(now.getTime() + 10 * 60_000))).toBe(false);
   });
 });
+
+describe('plans and settings from the admin portal', () => {
+  it('enforces what the Free plan includes, as set by an admin', async () => {
+    const db = deps.db!;
+    const b = browser(app);
+    await signIn(b, 'planner@example.com');
+    await db.query("insert into settings (key, value) values ('plans', $1) on conflict (key) do update set value = excluded.value", [JSON.stringify({ free: { groupSize: 3, travel: ['walk'], goldTheme: false, activeMeetups: 1 }, price: { monthly: 490, yearly: 4900 } })]);
+    const base = { name: 'Plan check', timeZone: 'Asia/Singapore', startsAt: '2027-01-10T12:00:00.000Z', dateOptions: [], ballot: [{ key: 'pizza' }, { key: 'ramen' }] };
+    expect((await b('POST', '/api/meetups', { ...base, invitees: ['A', 'B', 'C'] })).body.error).toBe('upgrade');
+    expect((await b('POST', '/api/meetups', { ...base, invitees: ['A'], travelMode: 'transit' })).body.error).toBe('upgrade');
+    expect((await b('POST', '/api/meetups', { ...base, invitees: ['A'] })).status).toBe(200);
+    expect((await b('POST', '/api/meetups', { ...base, invitees: ['A'] })).body.message).toContain('1 meetup at a time');
+    expect((await b('PATCH', '/api/account', { theme: 'gold' })).body.error).toBe('upgrade');
+    expect((await b('GET', '/api/auth/me')).body.features).toMatchObject({ groupSize: 3, goldTheme: false });
+    expect((await (await app.request('/api/config')).json() as any).plans.price.monthly).toBe(490);
+    await db.query("delete from settings where key = 'plans'");
+  });
+
+  it('prices checkout from the admin setting and uses keys saved in the portal', async () => {
+    const db = deps.db!;
+    const seen: string[] = [];
+    const stripeFetch = (async (url: string, init?: RequestInit) => {
+      seen.push(`${(init?.headers as Record<string, string>).authorization} ${init?.body}`);
+      return Response.json({ url: 'https://checkout.stripe.com/c/pay/x' });
+    }) as unknown as typeof fetch;
+    const { saveSetting } = await import('@zorion/server/settings');
+    await saveSetting(db, env.TOTP_KEY, 'STRIPE_SECRET_KEY', ['sk', 'test', 'fromtheportal1234'].join('_'));
+    await db.query("insert into settings (key, value) values ('plans', $1) on conflict (key) do update set value = excluded.value", [JSON.stringify({ price: { monthly: 490, yearly: 4900 } })]);
+    const app2 = createApp({ ...deps, fetch: stripeFetch, outbox: [] });
+    const b = browser(app2);
+    await b('POST', '/api/auth/email-code', { email: 'buyer@example.com' });
+    // The outbox is per app here, so read the code from the second app's sign-in email.
+    const code = (await (await app2.request('/api/dev/outbox')).json() as any).outbox.at(-1).text.match(/\d{6}/)[0];
+    await b('POST', '/api/auth/email-code/verify', { email: 'buyer@example.com', code });
+    expect((await b('POST', '/api/billing/checkout', { period: 'yearly' })).body.url).toContain('checkout.stripe.com');
+    expect(seen.at(-1)).toContain(`Bearer ${['sk', 'test', 'fromtheportal1234'].join('_')}`);
+    expect(decodeURIComponent(seen.at(-1)!)).toContain('[unit_amount]=4900');
+    expect(decodeURIComponent(seen.at(-1)!)).toContain('[recurring][interval]=year');
+    await db.query("delete from settings where key in ('plans', 'env:STRIPE_SECRET_KEY')");
+  });
+});

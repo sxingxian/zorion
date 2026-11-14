@@ -1,8 +1,9 @@
 import { Hono } from 'hono';
 import { neonDb } from '@zorion/db';
+import { DEFAULT_EMAIL_FROM, cachedSettings } from '@zorion/server/settings';
 import { account, auth } from './auth';
 import { type App, type Deps, Fail, isProd, loadSession } from './core';
-import { ads, billing, maintain, webhooks } from './extras';
+import { ads, billing, maintain, publicConfig, webhooks } from './extras';
 import { guest } from './guest';
 import { catalog, meetups } from './meetups';
 import { telegramWebhook } from './telegram';
@@ -18,8 +19,13 @@ export function createApp(overrides: Partial<Deps> = {}) {
   const app = new Hono<App>();
 
   app.use('*', async (c, next) => {
-    const env = overrides.env ?? c.env;
-    c.set('deps', { db: overrides.db ?? neonDb(env.DATABASE_URL), env, fetch: overrides.fetch ?? fetch, now: overrides.now ?? (() => new Date()), outbox: overrides.outbox ?? outbox });
+    const base = overrides.env ?? c.env;
+    const db = overrides.db ?? neonDb(base.DATABASE_URL);
+    // Keys and addresses saved in the admin portal win over the Worker's own variables.
+    const saved = await cachedSettings(db, base.TOTP_KEY).catch(() => ({}));
+    const env = { ...base, ...saved };
+    if (!env.EMAIL_FROM && isProd(env)) env.EMAIL_FROM = DEFAULT_EMAIL_FROM;
+    c.set('deps', { db, env, fetch: overrides.fetch ?? fetch, now: overrides.now ?? (() => new Date()), outbox: overrides.outbox ?? outbox });
     await next();
     c.header('x-content-type-options', 'nosniff');
     c.header('referrer-policy', 'strict-origin-when-cross-origin');
@@ -56,6 +62,7 @@ export function createApp(overrides: Partial<Deps> = {}) {
   app.route('/api/webhooks/telegram', telegramWebhook);
   app.route('/api/webhooks', webhooks);
   app.route('/api/ads', ads);
+  app.route('/api/config', publicConfig);
   app.route('/api', catalog);
 
   // Development only: lets a developer read the sign-in code without an email provider.

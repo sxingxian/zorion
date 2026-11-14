@@ -1,6 +1,6 @@
 import { type ReactNode, useContext, useEffect, useId, useRef, useState } from 'react';
 import { ART, ICONS } from '@zorion/core';
-import { Link, Look, api } from './lib';
+import { Link, Look, api, useConfig } from './lib';
 
 const svg = (inner: string, viewBox: string, size: number, ratio = 1, label?: string) => (
   <svg viewBox={viewBox} width={size} height={Math.round(size * ratio)} style={{ flex: 'none' }} role={label ? 'img' : undefined} aria-label={label} aria-hidden={label ? undefined : true} dangerouslySetInnerHTML={{ __html: inner }} />
@@ -181,6 +181,7 @@ export function Seg<T extends string>({ value, onChange, options }: { value: T; 
 }
 
 /** First-party sponsored slot. Pro viewers get nothing back from the API, so nothing renders. */
+/** A first-party sponsored spot. Shown when no Google ad can be. */
 export function Sponsored({ placement, category, show = true }: { placement: string; category?: string | null; show?: boolean }) {
   const [ad, setAd] = useState<{ name: string; url: string | null } | null>(null);
   useEffect(() => {
@@ -192,6 +193,60 @@ export function Sponsored({ placement, category, show = true }: { placement: str
   if (!show || !ad) return null;
   const inner = <><span><strong>Sponsored</strong> · {ad.name}</span></>;
   return ad.url ? <a className="sponsored" href={ad.url} target="_blank" rel="noopener noreferrer sponsored">{inner}</a> : <div className="sponsored">{inner}</div>;
+}
+
+const CONSENT_KEY = 'zorion-google-ads';
+/**
+ * An ad spot: a Google ad when one can show, otherwise a sponsored spot.
+ * The Google ad loads in a frame from the landing site, a different origin, so it cannot read anything in the app.
+ */
+export function AdSlot({ placement, show }: { placement: string; show: boolean }) {
+  const config = useConfig();
+  const [consent, setConsent] = useState<string | null>(() => { try { return localStorage.getItem(CONSENT_KEY); } catch { return null; } });
+  const [state, setState] = useState<'trying' | 'google' | 'fallback'>('trying');
+  const google = !!config?.googleAds && config.googleAds.placements.includes(placement);
+  const allowed = google && (!config!.googleAds!.consent || consent === 'yes');
+  useEffect(() => {
+    if (!show || !config) return;
+    if (!allowed) { setState('fallback'); return; }
+    setState('trying');
+    const origin = new URL(config.siteOrigin).origin;
+    const onMessage = (e: MessageEvent) => { if (e.origin === origin && e.data?.zorionAd) setState(e.data.zorionAd === 'filled' ? 'google' : 'fallback'); };
+    window.addEventListener('message', onMessage);
+    const t = setTimeout(() => setState((s) => (s === 'trying' ? 'fallback' : s)), 5000);
+    return () => { window.removeEventListener('message', onMessage); clearTimeout(t); };
+  }, [show, config, allowed]);
+  if (!show || !config) return null;
+  const choose = (v: 'yes' | 'no') => { try { localStorage.setItem(CONSENT_KEY, v); } catch { /* private mode: ask again next time */ } setConsent(v); };
+  return (
+    <>
+      {google && config.googleAds!.consent && consent === null && (
+        <div className="consent" role="region" aria-label="Ads">
+          <span>Allow ads from Google? They keep Zorion free.</span>
+          <span className="row" style={{ gap: 8 }}><button className="btn second" onClick={() => choose('no')}>No</button><button className="btn" onClick={() => choose('yes')}>Allow</button></span>
+        </div>
+      )}
+      {allowed && state !== 'fallback' && (
+        <div className="adframe" style={state === 'google' ? undefined : { height: 0, overflow: 'hidden' }}>
+          <small>Advertisement</small>
+          <iframe title="Advertisement" src={`${config.siteOrigin}/ad-frame?slot=${encodeURIComponent(placement)}&consent=yes`} sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox" loading="lazy" referrerPolicy="strict-origin-when-cross-origin" />
+        </div>
+      )}
+      {state === 'fallback' && <Sponsored placement={placement} />}
+    </>
+  );
+}
+
+/** Zorion's own error screen, inside the app's frame. */
+export function ErrorScreen({ title, text, action }: { title: string; text: string; action?: ReactNode }) {
+  return (
+    <main className="screen" style={{ justifyContent: 'center', alignItems: 'center', textAlign: 'center', gap: 14 }} role="alert">
+      <Mascot size={96} />
+      <h1 className="display h1">{title}</h1>
+      <p style={{ color: 'var(--muted)', margin: 0 }}>{text}</p>
+      {action && <div style={{ width: '100%', maxWidth: 320 }}>{action}</div>}
+    </main>
+  );
 }
 
 export function Person({ name, tag, right, onClick, to }: { name: string; tag?: string; right?: ReactNode; onClick?: () => void; to?: string }) {

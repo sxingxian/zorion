@@ -3,7 +3,7 @@ import { LIMITS, OWN_ICONS, halfRoundedUp } from '@zorion/core';
 import { CrewMap, ring } from './map';
 import { StartPicker } from './start';
 import { ApiError, Link, type Me, api, deviceZone, fromLocalInput, navigate, toLocalInput, useAction, when } from './lib';
-import { Btn, Check, Chevron, Chip, Facts, Field, Header, Icon, Loading, Mascot, Note, Oops, Person, Pick, Plus, Remove, Seg, Sponsored, Switch, Tally, Toast, copyText, locate } from './ui';
+import { Btn, Check, Chevron, Chip, Facts, Field, Header, Icon, Loading, Mascot, Note, Oops, Person, Pick, Plus, Remove, Seg, AdSlot, Sponsored, Switch, Tally, Toast, copyText, locate } from './ui';
 
 type M = Record<string, any>;
 const STATUS: Record<string, string> = { draft: 'Setting up', date_vote: 'Date vote', voting: 'Voting', places: 'Picking places', place_vote: 'Place vote', confirmed: 'Confirmed', ended: 'Done' };
@@ -23,7 +23,7 @@ export function Home({ me }: { me: Me }) {
             <span className="small" style={{ fontSize: 14 }}>{when(m.startsAt, m.timeZone)} · {m.going} of {m.people} going</span>
           </Link>
         ))}
-        <Sponsored placement="host_home" show={me.plan !== 'pro'} />
+        <AdSlot placement="host_home" show={me.features.ads} />
         <Btn to="/new" className="push"><Plus />New meetup</Btn>
       </main>
     </>
@@ -33,7 +33,6 @@ export function Home({ me }: { me: Me }) {
 // ---------- new meetup ----------
 interface Own { name: string; icon: string; save: boolean; off?: boolean }
 export function Create({ me }: { me: Me }) {
-  const pro = me.plan === 'pro';
   const [step, setStep] = useState<'details' | 'dates' | 'own' | 'people'>('details');
   const [name, setName] = useState('');
   const [dateVote, setDateVote] = useState(false);
@@ -138,10 +137,10 @@ export function Create({ me }: { me: Me }) {
             {cats.map((c) => <button key={c.key} className="tile" aria-pressed={picked.includes(c.key)} onClick={() => toggle(c.key)}><Icon name={c.icon} /><b>{c.name}</b></button>)}
             {own.map((o) => <button key={o.name} className="tile" aria-pressed={!o.off} onClick={() => setOwn(own.map((x) => (x.name === o.name ? { ...x, off: x.off ? total >= LIMITS.ballotMax : true } : x)))}><Icon name={o.icon} /><span className="stack" style={{ gap: 0 }}><b>{o.name}</b><span className="small">Yours</span></span></button>)}
           </div>
-          {pro && ownAllowed ? <button className="dash" onClick={() => setStep('own')}><Plus />Add your own</button> : <Link to="/pro" className="dash"><Plus />Add your own <Chip kind="pro">Pro</Chip></Link>}
+          {ownAllowed ? <button className="dash" onClick={() => setStep('own')}><Plus />Add your own</button> : <Link to="/pro" className="dash"><Plus />Add your own <Chip kind="pro">Pro</Chip></Link>}
           <p className="small">{total > 1 ? `Each guest picks up to ${halfRoundedUp(total)}.` : 'One option, so no vote.'}</p>
         </div>
-        <div className="stack"><span className="label">Getting there</span><Seg value={mode} onChange={setMode} options={[{ value: 'walk', label: 'Walk' }, { value: 'transit', label: 'Transit', locked: !pro }, { value: 'cycle', label: 'Cycle', locked: !pro }]} /></div>
+        <div className="stack"><span className="label">Getting there</span><Seg value={mode} onChange={setMode} options={[{ value: 'walk', label: 'Walk' }, { value: 'transit', label: 'Transit', locked: !me.features.travel.includes('transit') }, { value: 'cycle', label: 'Cycle', locked: !me.features.travel.includes('cycle') }]} /></div>
         <Btn className="push" disabled={!ready} onClick={() => setStep('people')}>Next</Btn>
       </main>
     </>
@@ -186,7 +185,7 @@ export function HostMeetup({ me, id, sub, pid, m, setM }: { me: Me; id: string; 
   const [toast, setToast] = useState<string | null>(null);
   const [step, setStep] = useState<string>('');
   const [keys, setKeys] = useState<string[]>(m.myCategories);
-  const [theme, setTheme] = useState<'pink' | 'gold'>(me.plan === 'pro' && me.theme === 'gold' ? 'gold' : 'pink');
+  const [theme, setTheme] = useState<'pink' | 'gold'>(me.features.guestTheme && me.theme === 'gold' ? 'gold' : 'pink');
   const [ids, setIds] = useState<string[]>([]);
   const [pick, setPick] = useState<string>('');
   const [choice, setChoice] = useState<{ kind: string; options: string[] } | null>(null);
@@ -208,7 +207,7 @@ export function HostMeetup({ me, id, sub, pid, m, setM }: { me: Me; id: string; 
   };
 
   // ----- sub-pages -----
-  if (sub === 'edit') return <EditMeetup m={m} base={base} call={call} busy={busy} error={error} pro={me.plan === 'pro'} />;
+  if (sub === 'edit') return <EditMeetup m={m} base={base} call={call} busy={busy} error={error} pro={me.features.guestTheme} />;
   if (sub === 'changes') return <Changes m={m} id={id} base={base} call={call} busy={busy} />;
   if (sub === 'person') {
     const p = m.people.find((x: M) => x.id === pid);
@@ -245,7 +244,7 @@ export function HostMeetup({ me, id, sub, pid, m, setM }: { me: Me; id: string; 
         </>
       );
     }
-    const pro = me.plan === 'pro';
+    const pro = me.features.guestTheme;
     return (
       <>
         <Header title={m.name} sub="Ready to share" onBack={m.maxVotes > 0 ? () => setStep('vote') : undefined} back={m.maxVotes > 0 ? undefined : '/'} step={1} />
@@ -398,7 +397,7 @@ export function HostMeetup({ me, id, sub, pid, m, setM }: { me: Me; id: string; 
           <div className="row between" style={{ alignItems: 'flex-end' }}><div className="stack" style={{ gap: 2 }}><h2 className="display h1">Closest to everyone</h2><p className="small">{sel.length === 1 ? 'One place: no vote needed.' : `Pick 1, or up to ${m.maxShortlist} for a vote.`}{m.places.some((p: M) => p.routed) ? '' : ' Times are estimates.'}</p></div><Chip>{sel.length} of {m.maxShortlist}</Chip></div>
           <Facts rows={[['Middle', `Up to ${longest} min for anyone`]]} />
           <div className="stack" style={{ gap: 6 }}>{m.places.map((p: M, i: number) => <Pick key={p.id} on={sel.includes(p.id)} onClick={() => flip(p.id)} lead={<span className="display h2" style={{ width: 22, color: 'var(--muted)' }}>{i + 1}</span>} title={p.name} meta={`${p.rating ? `★ ${p.rating} · ` : ''}up to ${p.longest} min${p.openNow === false ? ' · closed now' : ''}`} />)}</div>
-          <Sponsored placement="shortlist" category={m.winner} show={me.plan !== 'pro'} />
+          <Sponsored placement="shortlist" category={m.winner} show={me.features.ads} />
           <Oops>{error}</Oops>
           <Btn className="push" busy={busy} disabled={sel.length === 0} onClick={() => (sel.length === 1 ? call('/shortlist', { ids: sel }) : setStep('own'))}>{sel.length === 1 ? `Lock in ${m.places.find((p: M) => p.id === sel[0]).name}` : 'Next'}</Btn>
         </main>

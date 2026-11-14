@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import { Link, Look, type Me, usePath } from './lib';
-import { Chip, Mascot, Sponsored } from './ui';
+import { AdSlot, Chip, Mascot } from './ui';
 
 const NAV: Array<[label: string, to: string, icon: string]> = [
   ['Meetups', '/', 'M12 21 C12 21 5 14.5 5 9.5 A7 7 0 0 1 19 9.5 C19 14.5 12 21 12 21 Z'],
@@ -36,7 +36,7 @@ export function Shell({ children, pane, me, theme, mode, guest = false, tabs = f
               <span className="row"><Mascot size={38} /><span className="wordmark">Zorion</span></span>
               <NavLinks />
               <div className="push stack" style={{ gap: 12 }}>
-                <Sponsored placement="host_home" show={me.plan !== 'pro'} />
+                <AdSlot placement="host_home" show={me.features.ads} />
                 {me.plan === 'pro' ? <span className="row" style={{ fontWeight: 800, fontSize: 14 }}><Mascot size={40} />Pro <Chip kind="pro">Pro</Chip></span> : <Link to="/pro" className="btn second" style={{ minHeight: 44, fontSize: 14 }}>Free · Go Pro</Link>}
               </div>
             </aside>
@@ -54,7 +54,7 @@ export function Shell({ children, pane, me, theme, mode, guest = false, tabs = f
               <div className="display h0">{guest ? 'Vote, then meet in the middle.' : 'Meet in the middle.'}</div>
               <p style={{ color: 'var(--muted)' }}>{guest ? 'No account needed.' : 'Guests join from a link.'}</p>
             </div>
-            {guest && <Sponsored placement="guest_vote" show={ads} />}
+            {guest && <AdSlot placement="guest_vote" show={ads} />}
           </aside>
         )}
         <div className="col">

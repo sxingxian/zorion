@@ -4,7 +4,7 @@ import { CrewMap } from './map';
 import { StartPicker } from './start';
 import { Updates } from './updates';
 import { ApiError, Link, api, useAction, when } from './lib';
-import { Btn, Chevron, Chip, Codes, Facts, Field, Header, Icon, Loading, Mascot, Note, Oops, Pick, Sponsored, Toast, copyText, locate } from './ui';
+import { Btn, Chevron, Chip, Codes, Facts, Field, Header, Icon, Loading, Mascot, Note, Oops, Pick, AdSlot, Toast, copyText, locate } from './ui';
 
 type M = Record<string, any>;
 type View = 'auto' | 'code' | 'edit' | 'dates' | 'location' | 'categories' | 'rsvp' | 'place';
@@ -251,7 +251,7 @@ export function GuestFlow({ token, m, setM }: { token: string; m: M; setM: (m: M
         <main className="screen" style={{ gap: 10 }}>
           <div className="row between" style={{ alignItems: 'flex-end' }}><div className="stack" style={{ gap: 2 }}><h1 className="display h1">Pick up to {m.maxVotes}</h1><p className="small" style={{ fontSize: 14 }}>Pick what you'd happily eat.</p></div><Chip>{sel.length} of {m.maxVotes}</Chip></div>
           <div className="stack">{m.ballot.map((b: M) => <Pick key={b.key} on={sel.includes(b.key)} onClick={() => setList(sel.includes(b.key) ? sel.filter((x) => x !== b.key) : sel.length < m.maxVotes ? [...sel, b.key] : sel)} lead={<Icon name={b.icon} size={30} />} title={b.name} meta={b.own ? `Added by ${m.hostName}` : undefined} />)}</div>
-          <Sponsored placement="guest_vote" show={m.ads} />
+          <AdSlot placement="guest_vote" show={m.ads} />
           <Oops>{error}</Oops>
           <Btn className="push" busy={busy} disabled={sel.length === 0} onClick={async () => (await call('/categories', { keys: sel })) && (setList([]), done())}>{editing ? 'Save' : 'Vote'}</Btn>
         </main>

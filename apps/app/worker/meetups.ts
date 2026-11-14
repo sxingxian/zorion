@@ -1,9 +1,9 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
-import { LIMITS, type Voter, cleanName, countedCategoryVotes, defaultRsvpAfterDateSet, fairMiddle, isBlockedName, isOwnCategoryAllowed, leaders, maxCategoryVotes, maxShortlist, rankPlaces, scorePlaces, tally, travelMinutes, waitingForCategoryVotes } from '@zorion/core';
+import { LIMITS, type Voter, cleanName, countedCategoryVotes, defaultRsvpAfterDateSet, fairMiddle, isBlockedName, leaders, maxCategoryVotes, maxShortlist, rankPlaces, scorePlaces, tally, travelMinutes, waitingForCategoryVotes } from '@zorion/core';
 import * as schemas from '@zorion/core/schemas';
 import { type Db, type Row, one } from '@zorion/db';
-import { type App, type C, type Deps, Fail, body, clientKey, guardLock, requireUser, setting, strike } from './core';
+import { type App, type C, type Deps, Fail, body, clientKey, features, guardLock, requireUser, setting, strike, upgrade } from './core';
 import { randomToken } from './crypto';
 import { findStart } from './geocode';
 import { later, tellGuests } from './mail';
@@ -187,6 +187,12 @@ meetups.post('/', async (c) => {
   const name = cleanName(input.name, LIMITS.meetupName);
   if (!name || isBlockedName(name)) throw new Fail(422, 'invalid', 'Choose another meetup name.');
   const blocked = await setting<string[]>(db, 'blocked_words', []);
+  const f = await features(db, user.plan);
+  if (f.activeMeetups > 0) {
+    const open = await one(db, "select count(*)::int as n from meetups where host_id = $1 and status <> 'ended'", [user.id]);
+    if (Number(open?.n ?? 0) >= f.activeMeetups) throw upgrade(`Your plan allows ${f.activeMeetups} meetup${f.activeMeetups === 1 ? '' : 's'} at a time.`, { limit: f.activeMeetups });
+  }
+  if (!f.travel.includes(input.travelMode)) throw upgrade(`${input.travelMode === 'transit' ? 'Transit' : 'Cycling'} times come with Pro.`);
   const active = await db.query('select key, name, icon from categories where active order by position');
   const ballot: Array<{ key: string; name: string; icon: string; own: boolean }> = [];
   const saveOwn: Array<[string, string]> = [];
@@ -196,8 +202,7 @@ meetups.post('/', async (c) => {
       if (!cat) throw new Fail(422, 'invalid', 'One of those options is no longer available.');
       ballot.push({ key: cat.key, name: cat.name, icon: cat.icon, own: false });
     } else {
-      if (!isOwnCategoryAllowed(user.plan)) throw new Fail(402, 'pro_only', 'Your own options come with Pro.');
-      if (!(await setting<boolean>(db, 'own_categories', true))) throw new Fail(403, 'off', 'Your own options are switched off for now.');
+      if (!f.ownCategories) throw upgrade('Your own food options come with Pro.');
       const own = cleanName(item.own.name, LIMITS.categoryName);
       if (!own || isBlockedName(own, blocked)) throw new Fail(422, 'invalid', 'Choose another name.');
       ballot.push({ key: `own_${ballot.length}`, name: own, icon: item.own.icon, own: true });
@@ -205,7 +210,6 @@ meetups.post('/', async (c) => {
     }
   }
   if (new Set(ballot.map((b) => b.name.toLowerCase())).size !== ballot.length) throw new Fail(422, 'invalid', 'Each option can only be added once.');
-  const size = await setting<{ free: number; pro: number }>(db, 'group_size', { free: 8, pro: 30 });
   const names: string[] = [];
   for (const raw of input.invitees) {
     const n = cleanName(raw, LIMITS.inviteeName);
@@ -213,12 +217,12 @@ meetups.post('/', async (c) => {
     if (n.toLowerCase() === user.display_name.toLowerCase() || names.some((x) => x.toLowerCase() === n.toLowerCase())) throw new Fail(422, 'invalid', `"${n}" is on the list twice.`);
     names.push(n);
   }
-  if (names.length + 1 > size[user.plan]) throw new Fail(402, 'group_size', `Your plan covers groups of up to ${size[user.plan]}.`, { limit: size[user.plan] });
+  if (names.length + 1 > f.groupSize) throw upgrade(`Your plan covers groups of up to ${f.groupSize}.`, { limit: f.groupSize });
   const dates = [...new Set(input.dateOptions)];
   const id = crypto.randomUUID();
   await db.batch([
     ['insert into meetups (id, host_id, link_token, name, time_zone, starts_at, date_mode, travel_mode) values ($1, $2, $3, $4, $5, $6, $7, $8)',
-      [id, user.id, randomToken(16), name, input.timeZone, input.startsAt, input.startsAt ? 'fixed' : 'vote', user.plan === 'pro' ? input.travelMode : 'walk']],
+      [id, user.id, randomToken(16), name, input.timeZone, input.startsAt, input.startsAt ? 'fixed' : 'vote', input.travelMode]],
     ...ballot.map((b, i): [string, unknown[]] => ['insert into meetup_categories (meetup_id, key, name, icon, own, position) values ($1, $2, $3, $4, $5, $6)', [id, b.key, b.name, b.icon, b.own, i]]),
     ...dates.map((d): [string, unknown[]] => ['insert into date_options (meetup_id, starts_at) values ($1, $2)', [id, d]]),
     ['insert into participants (meetup_id, name, is_host, user_id, claimed, rsvp) values ($1, $2, true, $3, true, $4)', [id, user.display_name, user.id, 'going']],
@@ -245,8 +249,8 @@ meetups.post('/:id/people', async (c) => {
   const n = cleanName(input.name, LIMITS.inviteeName);
   if (!n || isBlockedName(n, await setting<string[]>(db, 'blocked_words', []))) throw new Fail(422, 'invalid', 'Enter another name.');
   if (L.people.some((p) => p.name.toLowerCase() === n.toLowerCase())) throw new Fail(422, 'invalid', `"${n}" is already on the list.`);
-  const size = await setting<{ free: number; pro: number }>(db, 'group_size', { free: 8, pro: 30 });
-  if (L.people.length + 1 > size[user.plan]) throw new Fail(402, 'group_size', `Your plan covers groups of up to ${size[user.plan]}.`, { limit: size[user.plan] });
+  const { groupSize } = await features(db, user.plan);
+  if (L.people.length + 1 > groupSize) throw upgrade(`Your plan covers groups of up to ${groupSize}.`, { limit: groupSize });
   await db.query('insert into participants (meetup_id, name) values ($1, $2)', [L.m.id, n]);
   return respond(c, L.m.id);
 });
@@ -320,7 +324,7 @@ meetups.post('/:id/share', async (c) => {
   need(L.m.status === 'draft', 'The link is already out.');
   const host = L.people.find((p) => p.is_host)!;
   need(maxCategoryVotes(L.cats.length) === 0 || host.categories.length > 0, 'Cast your own vote first.', 'vote_first');
-  if (guestTheme === 'gold' && user.plan !== 'pro') throw new Fail(402, 'pro_only', 'The gold guest theme comes with Pro.');
+  if (guestTheme === 'gold' && !(await features(c.get('deps').db, user.plan)).guestTheme) throw upgrade('The gold guest theme comes with Pro.');
   await c.get('deps').db.query('update meetups set status = $2, guest_theme = $3, updated_at = now() where id = $1', [L.m.id, L.m.date_mode === 'vote' ? 'date_vote' : 'voting', guestTheme]);
   return respond(c, L.m.id);
 });
@@ -364,7 +368,8 @@ meetups.post('/:id/middle', async (c) => {
   const def = cat.own ? null : await one(deps.db, 'select osm, google from categories where key = $1', [cat.key]);
   let found;
   try {
-    found = await findPlaces(deps, middle, { name: cat.name, own: cat.own, osm: (def?.osm as string[]) ?? [], google: (def?.google as object) ?? {} });
+    // A category an admin removed mid-meetup is searched by its name, like an own option.
+    found = await findPlaces(deps, middle, { name: cat.name, own: cat.own || !def, osm: (def?.osm as string[]) ?? [], google: (def?.google as object) ?? {} });
   } catch {
     throw new Fail(409, 'search_failed', "Place search isn't responding. Try again.");
   }
@@ -453,7 +458,7 @@ meetups.patch('/:id', async (c) => {
     statements.push(['update meetups set name = $2, updated_at = now() where id = $1', [L.m.id, n]]);
   }
   if (input.guestTheme) {
-    if (input.guestTheme === 'gold' && user.plan !== 'pro') throw new Fail(402, 'pro_only', 'The gold guest theme comes with Pro.');
+    if (input.guestTheme === 'gold' && !(await features(c.get('deps').db, user.plan)).guestTheme) throw upgrade('The gold guest theme comes with Pro.');
     statements.push(['update meetups set guest_theme = $2, updated_at = now() where id = $1', [L.m.id, input.guestTheme]]);
   }
   if (input.startsAt) {
@@ -493,7 +498,7 @@ catalog.get('/categories', async (c) => {
   const user = c.get('user');
   const rows = await db.query('select key, name, icon from categories where active order by position');
   const own = user ? await db.query('select id, name, icon from own_categories where user_id = $1 order by created_at', [user.id]) : [];
-  return c.json({ categories: rows, own, ownAllowed: !!user && isOwnCategoryAllowed(user.plan) && (await setting<boolean>(db, 'own_categories', true)) });
+  return c.json({ categories: rows, own, ownAllowed: !!user && (await features(db, user.plan)).ownCategories });
 });
 
 catalog.delete('/own-categories/:cid', async (c) => {

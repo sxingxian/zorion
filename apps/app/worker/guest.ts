@@ -1,9 +1,9 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
-import { LIMITS, cleanName, guestSeesAds, isBlockedName, makeGuestCode, maxCategoryVotes, normaliseGuestCode, rsvpAfterPlaceVote } from '@zorion/core';
+import { LIMITS, cleanName, isBlockedName, makeGuestCode, maxCategoryVotes, normaliseGuestCode, rsvpAfterPlaceVote } from '@zorion/core';
 import * as schemas from '@zorion/core/schemas';
 import type { Row } from '@zorion/db';
-import { type App, type C, Fail, body, clearStrikes, clientKey, guardLock, putCookie, readCookie, setting, strike } from './core';
+import { type App, type C, Fail, body, clearStrikes, clientKey, features, guardLock, putCookie, readCookie, setting, strike } from './core';
 import { hmac, randomToken, sha256 } from './crypto';
 import { guestForToken, later, sendConfirmation, tellHost } from './mail';
 import { connectLink, telegramReady } from './telegram';
@@ -68,7 +68,7 @@ async function noteChange(c: C, L: Loaded, p: Row, kind: string, detail: string)
 
 const maskEmail = (e: string): string => e.replace(/^(.).*(@.*)$/, '$1•••$2');
 
-function guestView(c: C, L: Loaded, who: Row | null, dateChange: { replies: string; at: string } | null = null) {
+async function guestView(c: C, L: Loaded, who: Row | null, dateChange: { replies: string; at: string } | null = null) {
   const s = summarise(L);
   const host = L.people.find((p) => p.is_host)!;
   const user = c.get('user');
@@ -85,7 +85,7 @@ function guestView(c: C, L: Loaded, who: Row | null, dateChange: { replies: stri
     dateIsSet: L.m.date_mode === 'fixed' || !!L.m.set_date_option,
     theme: L.m.guest_theme,
     travelMode: L.m.travel_mode,
-    ads: guestSeesAds(user?.plan ?? null),
+    ads: (await features(c.get('deps').db, user?.plan ?? 'free')).ads,
     ballot: L.cats,
     maxVotes: s.maxVotes,
     dates: L.dates.map((d) => ({ id: d.id, startsAt: new Date(d.starts_at).toISOString() })),
@@ -115,12 +115,12 @@ async function lastDateChange(c: C, L: Loaded) {
 }
 const respond = async (c: C, L: Loaded) => {
   const fresh = (await load(c.get('deps').db, { id: L.m.id }))!;
-  return c.json({ meetup: guestView(c, fresh, await whoAmI(c, fresh), await lastDateChange(c, fresh)) });
+  return c.json({ meetup: await guestView(c, fresh, await whoAmI(c, fresh), await lastDateChange(c, fresh)) });
 };
 
 guest.get('/:token', async (c) => {
   const L = await open(c);
-  return c.json({ meetup: guestView(c, L, await whoAmI(c, L), await lastDateChange(c, L)) });
+  return c.json({ meetup: await guestView(c, L, await whoAmI(c, L), await lastDateChange(c, L)) });
 });
 
 /** Tap a name the host added, or add yourself. The short code is shown once, here. */
@@ -142,8 +142,7 @@ guest.post('/:token/join', async (c) => {
     if (!n || isBlockedName(n, await setting<string[]>(db, 'blocked_words', []))) throw new Fail(422, 'invalid', 'Enter another name.');
     if (L.people.some((p) => p.name.toLowerCase() === n.toLowerCase())) throw new Fail(409, 'taken', 'That name is already listed. Tap it, or pick another.');
     const hostPlan = (await db.query('select plan from users where id = $1', [L.m.host_id]))[0]?.plan ?? 'free';
-    const size = await setting<{ free: number; pro: number }>(db, 'group_size', { free: 8, pro: 30 });
-    if (L.people.length + 1 > size[hostPlan as 'free' | 'pro']) throw new Fail(409, 'full', 'This meetup is full.');
+    if (L.people.length + 1 > (await features(db, hostPlan as 'free' | 'pro')).groupSize) throw new Fail(409, 'full', 'This meetup is full.');
     id = (await db.query('insert into participants (meetup_id, name) values ($1, $2) returning id', [L.m.id, n]))[0]!.id;
   }
   // A 4-character code can collide inside one meetup, so try a few.
@@ -161,7 +160,7 @@ guest.post('/:token/join', async (c) => {
   if (!code) throw new Fail(409, 'taken', 'Someone just took that name. Pick another.');
   await rememberDevice(c, L, id);
   const fresh = (await load(db, { id: L.m.id }))!;
-  return c.json({ code, meetup: guestView(c, fresh, fresh.people.find((p) => p.id === id)!) });
+  return c.json({ code, meetup: await guestView(c, fresh, fresh.people.find((p) => p.id === id)!) });
 });
 
 async function checkCode(c: C, L: Loaded, raw: string): Promise<Row> {
@@ -191,7 +190,7 @@ guest.post('/:token/code', async (c) => {
   await c.get('deps').db.query("update participants set amend_until = now() + interval '10 minutes' where id = $1", [p.id]);
   await rememberDevice(c, L, p.id);
   const fresh = (await load(c.get('deps').db, { id: L.m.id }))!;
-  return c.json({ meetup: guestView(c, fresh, fresh.people.find((x) => x.id === p.id)!) });
+  return c.json({ meetup: await guestView(c, fresh, fresh.people.find((x) => x.id === p.id)!) });
 });
 
 guest.post('/:token/dates', async (c) => {

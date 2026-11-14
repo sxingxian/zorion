@@ -4,7 +4,7 @@ import { LIMITS, cleanName } from '@zorion/core';
 import * as schemas from '@zorion/core/schemas';
 import { one } from '@zorion/db';
 import { connectLink, telegramReady } from './telegram';
-import { type App, type C, Fail, body, clearStrikes, clientKey, endSession, guardLock, requireUser, sendEmail, startSession, strike, toUser } from './core';
+import { type App, type C, Fail, body, clearStrikes, clientKey, endSession, features, guardLock, requireUser, sendEmail, startSession, strike, toUser, upgrade } from './core';
 import { hashPassword, hmac, newTotpSecret, otpauthUri, randomDigits, randomToken, safeEqual, seal, sha256, unseal, verifyPassword, verifyTotp } from './crypto';
 
 /**
@@ -155,7 +155,10 @@ auth.post('/sign-out', async (c) => {
   return c.json({ ok: true });
 });
 
-auth.get('/me', (c) => c.json({ user: c.get('user'), pending: c.get('pending') ? { first: c.get('pending')!.first } : null, telegram: telegramReady(c.get('deps')) }));
+auth.get('/me', async (c) => {
+  const user = c.get('user');
+  return c.json({ user, features: user ? await features(c.get('deps').db, user.plan) : null, pending: c.get('pending') ? { first: c.get('pending')!.first } : null, telegram: telegramReady(c.get('deps')) });
+});
 
 // ---------- account ----------
 export const account = new Hono<App>();
@@ -163,7 +166,7 @@ export const account = new Hono<App>();
 account.patch('/', async (c) => {
   const user = requireUser(c);
   const input = await body(c, z.object({ theme: z.enum(['gold', 'pink']).optional(), displayName: z.string().max(40).optional(), notify: z.boolean().optional() }));
-  if (input.theme && user.plan !== 'pro' && input.theme === 'gold') throw new Fail(402, 'pro_only', 'The gold theme comes with Pro.');
+  if (input.theme === 'gold' && !(await features(c.get('deps').db, user.plan)).goldTheme) throw upgrade('The gold theme comes with Pro.');
   const name = input.displayName === undefined ? undefined : cleanName(input.displayName, LIMITS.inviteeName);
   if (input.displayName !== undefined && !name) throw new Fail(422, 'invalid', 'Enter a name.');
   const row = await one(c.get('deps').db, `update users u set theme = coalesce($2, theme), display_name = coalesce($3, display_name), notify = coalesce($4, notify) where id = $1

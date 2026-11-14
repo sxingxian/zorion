@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { type Db, one } from '@zorion/db';
-import { type App, type Deps, Fail, body, requireUser } from './core';
+import { type App, type Deps, Fail, body, features, getPlans, requireUser } from './core';
 import { hmac, safeEqual } from './crypto';
 import { ensureTelegramWebhook } from './telegram';
 
@@ -24,12 +24,17 @@ billing.post('/checkout', async (c) => {
   const user = requireUser(c);
   const deps = c.get('deps');
   const { period } = await body(c, z.object({ period: z.enum(['monthly', 'yearly']) }));
-  const price = period === 'yearly' ? deps.env.STRIPE_PRICE_YEARLY : deps.env.STRIPE_PRICE_MONTHLY;
-  if (!price) throw new Fail(409, 'billing_off', 'Billing is not set up yet.');
+  const { price } = await getPlans(deps.db);
+  const amount = period === 'yearly' ? price.yearly : price.monthly;
+  if (!amount) throw new Fail(409, 'billing_off', 'Pro is not on sale yet.');
   if (user.plan === 'pro') throw new Fail(409, 'already_pro', 'You are already on Pro.');
+  // The price comes from the admin portal, so no Stripe price has to be made by hand.
   const session = await stripe(deps, 'checkout/sessions', {
     mode: 'subscription',
-    'line_items[0][price]': price,
+    'line_items[0][price_data][currency]': price.currency,
+    'line_items[0][price_data][unit_amount]': String(amount),
+    'line_items[0][price_data][recurring][interval]': period === 'yearly' ? 'year' : 'month',
+    'line_items[0][price_data][product_data][name]': 'Zorion Pro',
     'line_items[0][quantity]': '1',
     customer_email: user.email,
     client_reference_id: user.id,
@@ -92,14 +97,16 @@ webhooks.post('/stripe', async (c) => {
   return c.json({ ok: true });
 });
 
-// ---------- sponsored slots (first-party only: no ad network runs inside the app) ----------
+// ---------- ads ----------
+// Google ads load in a frame served by the landing site, never in the app itself. The app falls back to
+// these first-party sponsored slots when no Google ad shows.
 export const ads = new Hono<App>();
 
 ads.get('/:placement', async (c) => {
   const { db } = c.get('deps');
   const placement = c.req.param('placement');
-  if (c.get('user')?.plan === 'pro') return c.json({ ad: null });
-  const on = (await db.query("select 1 from ad_placements where key = $1 and enabled and kind = 'sponsored'", [placement]))[0];
+  if (!(await features(db, c.get('user')?.plan ?? 'free')).ads) return c.json({ ad: null });
+  const on = (await db.query('select 1 from ad_placements where key = $1 and enabled', [placement]))[0];
   if (!on) return c.json({ ad: null });
   const category = c.req.query('category') ?? null;
   const row = (await db.query(
@@ -109,6 +116,24 @@ ads.get('/:placement', async (c) => {
     [category],
   ))[0];
   return c.json({ ad: row ? { name: row.name, url: row.url && /^https:\/\//.test(row.url) ? row.url : null } : null });
+});
+
+// ---------- public settings the app's screens need ----------
+export const publicConfig = new Hono<App>();
+publicConfig.get('/', async (c) => {
+  const { db, env } = c.get('deps');
+  const [plans, adsense, placements] = await Promise.all([
+    getPlans(db),
+    db.query("select value from settings where key = 'adsense'"),
+    db.query("select key from ad_placements where enabled and kind = 'adsense'"),
+  ]);
+  const a = (adsense[0]?.value ?? {}) as { publisherId?: string; slot?: string; consent?: boolean };
+  const google = !!a.publisherId && !!a.slot;
+  return c.json({
+    siteOrigin: env.SITE_ORIGIN,
+    plans,
+    googleAds: google ? { consent: a.consent !== false, placements: placements.map((p) => p.key) } : null,
+  });
 });
 
 // ---------- clean-up ----------
