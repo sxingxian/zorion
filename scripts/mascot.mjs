@@ -2,79 +2,85 @@
 // (free) and star (Pro) looks, and the outlined versions for dark backgrounds always match.
 //   node scripts/mascot.mjs            rewrites the mascot in packages/core/src/art.ts and the app icons
 //   node scripts/mascot.mjs --preview  prints JSON of every look in every palette (for mockups)
+// The drawing is the soft, outlined style: a chubby head, small ears, big shiny eyes, a wide open
+// smile, short front hooves from behind the shoulders, and no tail from the front.
 
 export const PALETTES = {
-  black: { skin: '#16171C', shade: '#23252E', back: '#2A2C34', accent: '#FFA6FC', deep: '#D45FD0', blush: '#FFA6FC', blushOp: 0.55, mouth: '#FFFFFF', eyes: 'shiny', starEdge: '#F5C242' },
-  pink: { skin: '#FFB8E0', shade: '#FFCDEA', back: '#F59BCF', accent: '#F77CC2', deep: '#C94A93', blush: '#F2629F', blushOp: 0.45, mouth: '#7A2A55', eyes: 'dot', starEdge: '#B7860B' },
+  black: { body: '#2B2830', belly: '#3A3641', line: '#15131A', ear: '#FFA6FC', snout: '#FFA6FC', snoutLine: '#B94FB5', nose: '#B94FB5', blush: '#FFA6FC', blushOp: 0.6, face: '#FFFFFF', hoof: '#FFA6FC', accent: '#FFA6FC' },
+  pink: { body: '#FFCBE0', belly: '#FFDDEB', line: '#6B4034', ear: '#FF9CC0', snout: '#FFAFCB', snoutLine: '#6B4034', nose: '#6B4034', blush: '#FF7FAE', blushOp: 0.5, face: '#6B4034', hoof: '#FF9CC0', accent: '#FFE3F7' },
 };
-const RIM = '#F5F5F7';
+const RIM = '#FFF4E6';
 const GOLD = '#F5C242';
+const GOLD_EDGE = '#9A6E00';
+const HAT = '#FFF8EE';
 
-const mirror = (d) => d.replace(/(-?\d+(?:\.\d+)?) (-?\d+(?:\.\d+)?)/g, (_, x, y) => `${+(120 - +x).toFixed(1)} ${y}`);
-const star = (cx, cy, r, inner = 0.45) => {
+const HEAD = 'M-78 10 C-78 -48 -44 -70 0 -70 C44 -70 78 -48 78 10 C78 52 46 68 0 68 C-46 68 -78 52 -78 10 Z';
+const EAR = 'M-71 -30 C-86 -42 -88 -62 -76 -68 C-62 -73 -45 -65 -36 -52 Z';
+const EAR_IN = 'M-69 -42 C-77 -49 -78 -59 -72 -62 C-65 -64 -56 -60 -51 -54 Z';
+const BODY = 'M0 60 C36 60 56 82 56 110 C56 136 34 150 0 150 C-34 150 -56 136 -56 110 C-56 82 -36 60 0 60 Z';
+
+const star = (cx, cy, r, k = 0.5) => {
   const pts = [];
   for (let i = 0; i < 10; i++) {
-    const a = -Math.PI / 2 + (i * Math.PI) / 5;
-    const rr = i % 2 ? r * inner : r;
-    pts.push(`${(cx + rr * Math.cos(a)).toFixed(1)} ${(cy + rr * Math.sin(a)).toFixed(1)}`);
+    const t = -Math.PI / 2 + (i * Math.PI) / 5;
+    const rr = i % 2 ? r * k : r;
+    pts.push(`${(cx + rr * Math.cos(t)).toFixed(1)} ${(cy + rr * Math.sin(t)).toFixed(1)}`);
   }
   return `M${pts.join(' L')} Z`;
 };
+const both = (s) => `${s}<g transform="scale(-1 1)">${s}</g>`;
+const S = (c, w = 4) => `stroke="${c}" stroke-width="${w}" stroke-linejoin="round" stroke-linecap="round"`;
+const el = (tag, attrs) => `<${tag} ${attrs}></${tag}>`;
 
-// ---------- head, drawn in a 120-wide frame ----------
-const HEAD = 'M60 19 C88 19 108 35 111 62 C114 90 92 106 60 106 C28 106 6 90 9 62 C12 35 32 19 60 19 Z';
-const EAR_L = 'M17 47 C8 33 8 15 17 9 C26 4 41 15 47 26 C39 33 27 40 17 47 Z';
-const EAR_L_IN = 'M20 37 C16 28 16 18 21 14 C27 12 34 19 38 25 C32 29 26 33 20 37 Z';
-const EAR_R = mirror(EAR_L);
-const EAR_R_IN = mirror(EAR_L_IN);
-
+function hat(p) {
+  const puffs = [[-19, -90, 15], [0, -99, 18], [19, -90, 15]];
+  const circles = puffs.map(([x, y, r]) => el('circle', `cx="${x}" cy="${y}" r="${r}"`)).join('');
+  const band = 'x="-27" y="-84" width="54" height="19" rx="8"';
+  return `<g transform="rotate(-7 0 -70)"><g fill="${p.line}" ${S(p.line, 8)}>${circles}${el('rect', band)}</g><g fill="${HAT}">${circles}</g>${el('rect', `${band} fill="#FFA6FC"`)}${el('path', `d="M-12 -100 q4 -6 10 -5" fill="none" ${S('#F3D9C2', 3)}`)}</g>`;
+}
 function eyes(p) {
-  if (p.eyes === 'dot') {
-    return [38, 82].map((x) => `<circle cx="${x}" cy="60" r="5.6" fill="#3A1E2C"></circle><circle cx="${x - 1.8}" cy="58" r="1.9" fill="#FFFFFF"></circle>`).join('');
-  }
-  return [38, 82].map((x) => `<ellipse cx="${x}" cy="59" rx="8.4" ry="9.4" fill="#FFFFFF"></ellipse><circle cx="${x + 0.6}" cy="61" r="6.6" fill="#0B0B0D"></circle><circle cx="${x - 2}" cy="58" r="2.5" fill="#FFFFFF"></circle><circle cx="${x + 2.8}" cy="64" r="1.1" fill="#FFFFFF"></circle>`).join('');
+  const dark = p.face === '#FFFFFF';
+  return [-37, 37].map((x) => el('ellipse', `cx="${x}" cy="3" rx="7.8" ry="9.4" fill="${dark ? '#0B0B0D' : p.face}"${dark ? ' stroke="#FFFFFF" stroke-width="2.6"' : ''}`) + el('circle', `cx="${x - 2.4}" cy="-0.8" r="3" fill="#FFFFFF"`) + el('circle', `cx="${x + 2.8}" cy="6.6" r="1.4" fill="#FFFFFF"`)).join('');
 }
-function snout(p) {
-  return `<ellipse cx="60" cy="78" rx="19" ry="13.5" fill="${p.accent}"></ellipse><ellipse cx="54" cy="72.5" rx="7" ry="3" fill="#FFFFFF" opacity="0.35"></ellipse><ellipse cx="53" cy="79" rx="3.2" ry="4.8" fill="${p.deep}"></ellipse><ellipse cx="67" cy="79" rx="3.2" ry="4.8" fill="${p.deep}"></ellipse>`;
+function shades() {
+  return el('path', `d="M-14 0 Q0 -7 14 0" fill="none" ${S(GOLD_EDGE, 5)}`) + [-37, 37].map((x) => el('path', `d="${star(x, 2, 22)}" fill="${GOLD}" ${S(GOLD_EDGE, 3.5)}`) + el('path', `d="M${x - 7} -4 l6 -3" fill="none" ${S('#FFFFFF', 3)}`)).join('');
 }
-const cheeks = (p) => `<circle cx="24" cy="76" r="10" fill="${p.blush}" opacity="${p.blushOp}"></circle><circle cx="96" cy="76" r="10" fill="${p.blush}" opacity="${p.blushOp}"></circle>`;
-const earsAndHead = (p) => `<path d="${EAR_L}" fill="${p.skin}"></path><path d="${EAR_R}" fill="${p.skin}"></path><path d="${EAR_L_IN}" fill="${p.accent}"></path><path d="${EAR_R_IN}" fill="${p.accent}"></path><path d="${HEAD}" fill="${p.skin}"></path>`;
-const headRim = (w = 6) => `<g fill="${RIM}" stroke="${RIM}" stroke-width="${w}" stroke-linejoin="round"><path d="${EAR_L}"></path><path d="${EAR_R}"></path><path d="${HEAD}"></path></g>`;
+// The head is drawn around (0, 0). look: 'chef' | 'star' | 'plain' (no hat, for the icon).
+function headArt(p, look, rim) {
+  const ring = rim ? `<g fill="${RIM}" ${S(RIM, 14)}>${both(el('path', `d="${EAR}"`))}${el('path', `d="${HEAD}"`)}</g>` : '';
+  return ring
+    + both(el('path', `d="${EAR}" fill="${p.body}" ${S(p.line)}`)) + both(el('path', `d="${EAR_IN}" fill="${p.ear}"`))
+    + el('path', `d="${HEAD}" fill="${p.body}" ${S(p.line)}`)
+    + both(el('ellipse', `cx="-54" cy="24" rx="13" ry="9" fill="${p.blush}" opacity="${p.blushOp}"`))
+    + (look === 'star' ? shades() : eyes(p))
+    // wide open smile, tucked under the snout
+    + el('path', `d="M-16 28 Q0 36 16 28 Q13 47 0 47 Q-13 47 -16 28 Z" fill="#E8457F"`) + el('ellipse', `cx="0" cy="43" rx="6.4" ry="3.4" fill="#FFB9D6"`)
+    + el('ellipse', `cx="0" cy="16" rx="20" ry="14" fill="${p.snout}" ${S(p.snoutLine, 3)}`) + el('ellipse', `cx="-7" cy="16" rx="2.6" ry="4.2" fill="${p.nose}"`) + el('ellipse', `cx="7" cy="16" rx="2.6" ry="4.2" fill="${p.nose}"`)
+    + (look === 'chef' ? hat(p) : '');
+}
+// Standing body under the head: two feet, one front hoof waving, the other relaxed. Four limbs, no tail.
+function fullArt(p, look, rim) {
+  const foot = (x) => el('rect', `x="${x}" y="132" width="22" height="28" rx="11" fill="${p.body}"`) + el('path', `d="M${x} 150 h22 a11 11 0 0 1 -22 0 Z" fill="${p.hoof}"`) + el('path', `d="M${x + 11} 151 v9" fill="none" ${S(p.snoutLine, 2)}`) + el('rect', `x="${x}" y="132" width="22" height="28" rx="11" fill="none" ${S(p.line)}`);
+  const box = 'x="-22" y="-11.5" width="44" height="23" rx="11.5"';
+  const hoof = (tf) => `<g transform="${tf}">${el('rect', `${box} fill="${p.body}"`)}${el('path', `d="M-8 -11.5 H-10.5 A11.5 11.5 0 0 0 -10.5 11.5 H-8 Z" fill="${p.hoof}"`)}${el('path', `d="M-22 0 h8" fill="none" ${S(p.snoutLine, 2)}`)}${el('rect', `${box} fill="none" ${S(p.line)}`)}</g>`;
+  const hoofRim = (tf) => `<g transform="${tf}">${el('rect', `${box} fill="${RIM}" ${S(RIM, 14)}`)}</g>`;
+  const wave = 'translate(-66 84) rotate(42)';
+  const rest = 'translate(60 99) scale(-1 1) rotate(-30)';
+  const ring = rim ? `<g fill="${RIM}" ${S(RIM, 14)}>${el('path', `d="${BODY}"`)}${el('rect', 'x="-32" y="132" width="22" height="28" rx="11"')}${el('rect', 'x="10" y="132" width="22" height="28" rx="11"')}</g>${hoofRim(wave)}${hoofRim(rest)}` : '';
+  return el('ellipse', `cx="0" cy="163" rx="56" ry="6" fill="#000000" opacity="0.12"`) + ring
+    + foot(-32) + foot(10) + hoof(wave) + hoof(rest)
+    + el('path', `d="${BODY}" fill="${p.body}" ${S(p.line)}`) + el('ellipse', `cx="0" cy="120" rx="30" ry="20" fill="${p.belly}"`)
+    + (look === 'star' ? el('path', `d="M-30 78 Q0 110 30 78" fill="none" stroke="${GOLD}" stroke-width="5" stroke-dasharray="0.1 9" stroke-linecap="round"`) + el('path', `d="${star(0, 100, 11)}" fill="${GOLD}" ${S(GOLD_EDGE, 2.5)}`) : '')
+    + `<g transform="rotate(-4 0 60)">${headArt(p, look, rim)}</g>`;
+}
 
-const chefHat = (p) => `<g transform="rotate(-8 60 18)"><circle cx="45" cy="6" r="11.5" fill="${p.accent}"></circle><circle cx="75" cy="6" r="11.5" fill="${p.accent}"></circle><circle cx="60" cy="0" r="13" fill="${p.accent}"></circle><circle cx="54" cy="-4" r="3.2" fill="#FFFFFF" opacity="0.4"></circle><rect x="38" y="10" width="44" height="15" rx="6" fill="${p.deep}"></rect></g>`;
-const chefFace = (p) => `${eyes(p)}${cheeks(p)}${snout(p)}<path d="M54 96 Q60 101 66 96" fill="none" stroke="${p.mouth}" stroke-width="2.8" stroke-linecap="round"></path>`;
-const starFace = (p) => `${cheeks(p)}<path d="M50 56 Q60 51 70 56" fill="none" stroke="${GOLD}" stroke-width="4" stroke-linecap="round"></path><path d="${star(37, 58, 16)}" fill="${GOLD}" stroke="${p.starEdge}" stroke-width="3" stroke-linejoin="round"></path><path d="${star(83, 58, 16)}" fill="${GOLD}" stroke="${p.starEdge}" stroke-width="3" stroke-linejoin="round"></path><path d="M31 52 L37 50 M77 52 L83 50" fill="none" stroke="#FFFFFF" stroke-width="2.6" stroke-linecap="round"></path>${snout(p)}<path d="M53 96 Q63 102 70 92" fill="none" stroke="${p.mouth}" stroke-width="2.8" stroke-linecap="round"></path>`;
-
-export function head(p, look, rim) {
-  return `${rim ? headRim() : ''}${earsAndHead(p)}${look === 'star' ? starFace(p) : chefFace(p) + chefHat(p)}`;
-}
-
-// ---------- full body, in a 240-wide frame ----------
-const BODY = 'M120 126 C156 126 176 148 176 176 C176 202 154 216 120 216 C86 216 64 202 64 176 C64 148 84 126 120 126 Z';
-const TAIL = 'M174 154 C190 156 199 144 192 135 C186 129 177 134 181 141 C184 146 191 144 191 139';
-// Four limbs, standing upright: two feet, the left hoof up in a wave, the right hoof resting.
-const FEET = [[90, 198], [130, 198]];
-const WAVE = 'M74 166 L56 142';
-const REST = 'M165 168 L172 191';
-function body(p, look, rim) {
-  const out = [];
-  if (rim) out.push(`<g fill="${RIM}" stroke="${RIM}" stroke-width="6" stroke-linejoin="round"><path d="${BODY}"></path>${FEET.map(([x, y]) => `<rect x="${x}" y="${y}" width="22" height="28" rx="11"></rect>`).join('')}<path d="${WAVE}" stroke-width="26" stroke-linecap="round"></path><path d="${REST}" stroke-width="24" stroke-linecap="round"></path></g>`);
-  out.push(`<ellipse cx="120" cy="228" rx="52" ry="5" fill="#000000" opacity="0.14"></ellipse>`);
-  out.push(`<path d="${TAIL}" fill="none" stroke="${rim ? RIM : p.accent}" stroke-width="6" stroke-linecap="round"></path>`);
-  for (const [x, y] of FEET) out.push(`<rect x="${x}" y="${y}" width="22" height="28" rx="11" fill="${p.skin}"></rect><rect x="${x}" y="${y + 18}" width="22" height="10" rx="5" fill="${p.accent}"></rect><path d="M${x + 11} ${y + 20} V${y + 28}" stroke="${p.deep}" stroke-width="1.8"></path>`);
-  out.push(`<path d="${BODY}" fill="${p.skin}"></path><ellipse cx="120" cy="184" rx="33" ry="22" fill="${p.shade}"></ellipse>`);
-  out.push(`<path d="${WAVE}" stroke="${p.skin}" stroke-width="20" stroke-linecap="round"></path><path d="M57.5 144 L54 139" stroke="${p.accent}" stroke-width="20" stroke-linecap="round"></path><path d="M49 136 L57 142" stroke="${p.deep}" stroke-width="1.8" stroke-linecap="round"></path>`);
-  out.push(`<path d="${REST}" stroke="${p.skin}" stroke-width="18" stroke-linecap="round"></path><path d="M171 188 L172.5 192" stroke="${p.accent}" stroke-width="18" stroke-linecap="round"></path><path d="M166 195 L178 191" stroke="${p.deep}" stroke-width="1.8" stroke-linecap="round"></path>`);
-  if (look === 'star') out.push(`<path d="M88 150 Q120 186 152 150" fill="none" stroke="${GOLD}" stroke-width="5" stroke-dasharray="1 8" stroke-linecap="round"></path><path d="${star(120, 172, 11)}" fill="${GOLD}" stroke="${GOLD}" stroke-width="2" stroke-linejoin="round"></path>`);
-  return out.join('');
-}
-export function full(p, look, rim) {
-  return `${body(p, look, rim)}<g transform="translate(42 -4) scale(1.3)">${head(p, look, rim)}</g>`;
-}
+// The screens draw the head in a "-6 -14 132 126" view box and the full body in "0 -22 240 254".
+export const head = (p, look, rim) => `<g transform="translate(60 64.1) scale(0.63)">${headArt(p, look, rim)}</g>`;
+export const full = (p, look, rim) => `<g transform="translate(120 84.4) scale(0.858)">${fullArt(p, look, rim)}</g>`;
 
 // The home-screen icon: the head without the hat, inside the safe zone of a round or square mask.
 export function icon(p) {
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="-26 -30 172 172"><rect x="-26" y="-30" width="172" height="172" fill="${p.accent}"/>${earsAndHead(p)}${chefFace(p)}</svg>\n`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="-26 -30 172 172"><rect x="-26" y="-30" width="172" height="172" fill="${p.accent}"/><g transform="translate(60 58) scale(0.66)">${headArt(p, 'plain', false)}</g></svg>\n`;
 }
 
 export function allLooks(p) {
