@@ -655,9 +655,53 @@ const cuisines = (osm: string[]) => { const m = osm.join('').match(/\["cuisine"~
 const wordList = (s: string) => s.toLowerCase().split(/[,|]/).map((w) => w.trim().replace(/[^a-z_ ]/g, '')).filter(Boolean);
 const osmFor = (words: string[]) => [`["amenity"~"restaurant|fast_food|cafe|bar|pub"]["cuisine"~"${words.map((w) => w.replace(/ /g, '_')).join('|')}"]`];
 
+/** The key for a map service, shown under the choice that needs it. */
+function MapKey({ service, maps, routing, places, onChange }: { service: 'google' | 'ors'; maps: R; routing: string; places: string; onChange: () => void }) {
+  const { confirm, toast } = useKit();
+  const [key, setKey] = useState('');
+  const [err, setErr] = useState<string | null>(null);
+  const [replacing, setReplacing] = useState(false);
+  const [sure, setSure] = useState(false);
+  const [run, busy, runErr] = useRun();
+  const s = maps[service] as R;
+  const status = (maps.status ?? {}) as R;
+  const name = service === 'google' ? 'Google' : 'openrouteservice';
+  const connect = async () => {
+    if (!key) { setErr(`Paste the ${name} key first.`); return; }
+    if (await confirm(`Connect ${name}`, (code) => call('PUT', `/maps/${service}`, { key, code }))) { setKey(''); setReplacing(false); toast(`${name} connected`); onChange(); }
+  };
+  const fallback = service === 'google'
+    ? [places === 'google' && 'places come from OpenStreetMap', routing === 'google' && "trip times use Zorion's estimate"].filter(Boolean).join(' and ')
+    : "trip times use Zorion's estimate";
+  const form = (
+    <>
+      <Field label={`${name} key`} error={err} hint={service === 'google' ? 'In Google Cloud: turn on Places API (New), and Routes API for trip times, then create an API key.' : 'Free at openrouteservice.org, under API keys.'}>
+        <input className="input" type="password" autoComplete="off" placeholder={service === 'google' ? 'AIza…' : 'Paste the key'} value={key} onChange={(e) => { setKey(e.target.value.trim()); setErr(null); }} />
+      </Field>
+      <div className="row"><button className="btn solid" onClick={connect}>Connect</button>{replacing && <button className="btn" onClick={() => { setReplacing(false); setKey(''); setErr(null); }}>Cancel</button>}</div>
+    </>
+  );
+  if (!s?.set) return <div className="keybox">{form}<div className="warn"><span>Until a key is connected, {fallback}.</span></div></div>;
+  const routesOff = service === 'google' && routing === 'google' && status.google && status.google.routes === false;
+  const broken = service === 'google' ? status.google && !status.google.places : status.ors && !status.ors.ok;
+  return (
+    <div className="keybox">
+      <div className="line flat"><span className="sub">{name} key</span><KeyHint s={s} /></div>
+      {broken && <div className="err">{name} refused this key at the last check, so {fallback}.</div>}
+      {routesOff && <div className="warn"><span>Routes API is off for this key, so trip times use Zorion's estimate. Turn it on in Google Cloud, then check again.</span><button className="btn" disabled={busy} onClick={() => run(async () => { const r = await call('POST', '/maps/check'); onChange(); if (r.error) throw new Error(r.error); }, 'Checked')}>Check again</button></div>}
+      {runErr && <div className="err" role="alert">{runErr}</div>}
+      {replacing ? form : sure ? (
+        <div className="confirm" role="alert"><span><strong>Remove the {name} key?</strong> Then {fallback}.</span>
+          <div className="row"><button className="btn" onClick={() => setSure(false)}>Keep</button><button className="btn danger" onClick={async () => { if (await confirm(`Remove the ${name} key`, (code) => call('POST', `/maps/${service}/remove`, { code }))) { setSure(false); toast('Key removed'); onChange(); } }}>Remove</button></div></div>
+      ) : <div className="row"><button className="btn" onClick={() => setReplacing(true)}>Replace key</button><button className="btn danger" onClick={() => setSure(true)}>Remove</button></div>}
+    </div>
+  );
+}
+
 function Categories({ admin }: { admin: AdminUser }) {
   const [d, reload, error] = useLoad<R>('/categories');
   const [icons] = useLoad<{ icons: string[] }>('/icons');
+  const [maps, reloadMaps] = useLoad<R>('/maps');
   const [form, setForm] = useState<CatForm | null>(null);
   const [nameErr, setNameErr] = useState<string | null>(null);
   const [sure, setSure] = useState(false);
@@ -734,8 +778,10 @@ function Categories({ admin }: { admin: AdminUser }) {
         ) : (
           <section>
             <h2>Search</h2>
-            <Field label="Places come from"><select className="input" value={d.settings.places_provider} disabled={!edit} onChange={(e) => setting({ places_provider: e.target.value }, 'Saved')}><option value="osm">OpenStreetMap (free)</option><option value="google">Google Places (needs a key)</option></select></Field>
-            <Field label="Trip times come from"><select className="input" value={d.settings.routing_provider ?? 'estimate'} disabled={!edit} onChange={(e) => setting({ routing_provider: e.target.value }, 'Saved')}><option value="estimate">Zorion's estimate</option><option value="osrm">OpenStreetMap routing (free)</option><option value="ors">openrouteservice (free key)</option><option value="google">Google routes (paid key)</option></select></Field>
+            <Field label="Places come from"><select className="input" value={d.settings.places_provider} disabled={!edit} onChange={(e) => setting({ places_provider: e.target.value }, 'Saved')}><option value="osm">OpenStreetMap (free)</option><option value="google">Google Places</option></select></Field>
+            <Field label="Trip times come from"><select className="input" value={d.settings.routing_provider ?? 'estimate'} disabled={!edit} onChange={(e) => setting({ routing_provider: e.target.value }, 'Saved')}><option value="estimate">Zorion's estimate</option><option value="osrm">OpenStreetMap routing (free)</option><option value="ors">openrouteservice</option><option value="google">Google routes</option></select></Field>
+            {edit && maps && (d.settings.places_provider === 'google' || d.settings.routing_provider === 'google') && <MapKey service="google" maps={maps} places={d.settings.places_provider} routing={d.settings.routing_provider ?? 'estimate'} onChange={reloadMaps} />}
+            {edit && maps && d.settings.routing_provider === 'ors' && <MapKey service="ors" maps={maps} places={d.settings.places_provider} routing="ors" onChange={reloadMaps} />}
             <Field label="Blocked words in names" hint="One per line. Hosts can't use these in meetup or food option names."><textarea className="input" rows={5} disabled={!edit} value={blocked ?? ''} onChange={(e) => setBlocked(e.target.value)} /></Field>
           </section>
         )}
@@ -871,6 +917,10 @@ function describe(l: R, admins: R[]): string {
       case 'stripe.remove': return 'Disconnected Stripe';
       case 'telegram.connect': return `Connected the Telegram bot${l.target ? ` @${l.target}` : ''}`;
       case 'telegram.remove': return 'Disconnected the Telegram bot';
+      case 'maps.google': return detail.routes ? 'Connected a Google key (places and routes)' : 'Connected a Google key (places)';
+      case 'maps.ors': return 'Connected an openrouteservice key';
+      case 'maps.google.remove': return 'Removed the Google key';
+      case 'maps.ors.remove': return 'Removed the openrouteservice key';
       case 'email.save': return 'Changed email settings';
       case 'email.test': return 'Sent a test email';
       case 'category.save': return `Saved food option ${l.target}${detail.active === false ? ' (hidden)' : ''}`;

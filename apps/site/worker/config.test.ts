@@ -13,6 +13,9 @@ const calls: Array<{ url: string; body: string }> = [];
 // Made-up keys, assembled here so the file holds nothing that looks like a real key.
 const TEST_KEY = ['sk', 'test', '51abcdefghijklmnopqrstuv'].join('_');
 const WRONG_KEY = ['sk', 'test', 'wrongwrongwrongwrong'].join('_');
+const GOOGLE_KEY = ['AIza', 'SyFakeFakeFakeFakeFakeFakeFakeFake12'].join('');
+const GOOGLE_NO_ROUTES = ['AIza', 'SyNoRoutesNoRoutesNoRoutesNoRout34'].join('');
+const ORS_KEY = ['5b3ce3597851110001cf6248', 'fakefakefakefake'].join('');
 
 // Stand-ins for Stripe, Telegram and Resend.
 const fakeFetch = (async (input: string, init?: RequestInit) => {
@@ -31,6 +34,9 @@ const fakeFetch = (async (input: string, init?: RequestInit) => {
     return json({ ok: true, result: true });
   }
   if (url.includes('api.resend.com')) return json({ id: 'email_1' });
+  if (url.includes('places.googleapis.com')) return (init?.headers as Record<string, string>)['x-goog-api-key']?.startsWith('AIza') ? json({ places: [{ id: 'p1' }] }) : json({ error: { message: 'API key not valid.' } }, 400);
+  if (url.includes('routes.googleapis.com')) return (init?.headers as Record<string, string>)['x-goog-api-key'] === GOOGLE_NO_ROUTES ? json({ error: { message: 'Routes API has not been used in project' } }, 403) : json({ routes: [{ duration: '300s' }] });
+  if (url.includes('api.openrouteservice.org')) return (init?.headers as Record<string, string>).authorization === ORS_KEY ? json({ routes: [] }) : json({ error: { message: 'Access to this API has been disallowed' } }, 403);
   throw new Error(`unexpected ${url}`);
 }) as unknown as typeof fetch;
 
@@ -92,6 +98,20 @@ describe('keys set in the admin portal', () => {
     const s = await loadSettings(db, env.TOTP_KEY);
     expect(s.STRIPE_SECRET_KEY).toBe(TEST_KEY);
     expect(s.STRIPE_WEBHOOK_SECRET).toBe(['whsec', 'newsecret1234'].join('_'));
+  });
+
+  it('connects map keys after one real check each, and says when Routes API is off', async () => {
+    expect((await b('PUT', '/maps/google', { key: ['xxxx', 'notAGoogleKeyButLongEnoughToPassTheShape'].join(''), code: await nextCode() })).body.message).toContain('API key not valid');
+    expect((await b('PUT', '/maps/google', { key: GOOGLE_NO_ROUTES, code: await nextCode() })).body).toEqual({ ok: true, routes: false });
+    expect((await b('GET', '/maps')).body).toMatchObject({ google: { set: true, from: 'portal' }, status: { google: { places: true, routes: false } } });
+    expect((await b('PUT', '/maps/google', { key: GOOGLE_KEY, code: await nextCode() })).body).toEqual({ ok: true, routes: true });
+    expect((await loadSettings(db, env.TOTP_KEY)).GOOGLE_PLACES_KEY).toBe(GOOGLE_KEY);
+    expect(JSON.stringify((await b('GET', '/maps')).body)).not.toContain(GOOGLE_KEY.slice(0, 12));
+    expect((await b('PUT', '/maps/ors', { key: 'a'.repeat(40), code: await nextCode() })).body.message).toContain('openrouteservice');
+    expect((await b('PUT', '/maps/ors', { key: ORS_KEY, code: await nextCode() })).body).toEqual({ ok: true });
+    expect((await b('POST', '/maps/check')).body.status).toMatchObject({ google: { places: true, routes: true }, ors: { ok: true } });
+    expect((await b('POST', '/maps/ors/remove', { code: await nextCode() })).body).toEqual({ ok: true });
+    expect((await loadSettings(db, env.TOTP_KEY)).ORS_API_KEY).toBeUndefined();
   });
 
   it('connects a Telegram bot from its token alone', async () => {

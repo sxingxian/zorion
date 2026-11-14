@@ -203,6 +203,93 @@ config.post('/email/test', async (c) => {
   return c.json({ ok: true, to: admin.email });
 });
 
+// ---------- map services: Google (places, and routes) and openrouteservice (routes) ----------
+const MAPS_STATUS = 'maps_status';
+interface MapsStatus { google?: { places: boolean; routes: boolean; at: string }; ors?: { ok: boolean; at: string } }
+/** One small, real request to each Google API the key might be used for. Routes is optional: Places is required. */
+async function checkGoogle(c: C, key: string): Promise<{ places: boolean; routes: boolean; error: string | null }> {
+  const post = (url: string, mask: string, payload: unknown) => c.get('deps').fetch(url, {
+    method: 'POST', headers: { 'content-type': 'application/json', 'x-goog-api-key': key, 'x-goog-fieldmask': mask }, body: JSON.stringify(payload), signal: AbortSignal.timeout(10000),
+  });
+  const reason = async (res: Response) => ((await res.json().catch(() => null)) as { error?: { message?: string } } | null)?.error?.message ?? `refused (${res.status})`;
+  let places = false;
+  let routes = false;
+  let error: string | null = null;
+  try {
+    const res = await post('https://places.googleapis.com/v1/places:searchText', 'places.id', { textQuery: 'cafe', pageSize: 1, locationBias: { circle: { center: { latitude: 1.2966, longitude: 103.852 }, radius: 2000 } } });
+    places = res.ok;
+    if (!res.ok) error = `Google Places: ${await reason(res)}`;
+  } catch { error = 'Could not reach Google. Try again.'; }
+  if (places) {
+    try {
+      const res = await post('https://routes.googleapis.com/directions/v2:computeRoutes', 'routes.duration', { origin: { location: { latLng: { latitude: 1.2966, longitude: 103.852 } } }, destination: { location: { latLng: { latitude: 1.2996, longitude: 103.855 } } }, travelMode: 'WALK' });
+      routes = res.ok;
+    } catch { routes = false; }
+  }
+  return { places, routes, error };
+}
+async function checkOrs(c: C, key: string): Promise<string | null> {
+  try {
+    const res = await c.get('deps').fetch('https://api.openrouteservice.org/v2/directions/foot-walking?start=103.852,1.2966&end=103.855,1.2996', { headers: { authorization: key }, signal: AbortSignal.timeout(10000) });
+    if (res.ok) return null;
+    const data = (await res.json().catch(() => null)) as { error?: string | { message?: string } } | null;
+    const msg = typeof data?.error === 'string' ? data.error : data?.error?.message;
+    return `openrouteservice: ${msg ?? `refused (${res.status})`}`;
+  } catch { return 'Could not reach openrouteservice. Try again.'; }
+}
+config.get('/maps', async (c) => {
+  need(c);
+  const { db, env } = c.get('deps');
+  const st = await settingsStatus(db, env as unknown as Record<string, unknown>);
+  return c.json({ google: st.GOOGLE_PLACES_KEY, ors: st.ORS_API_KEY, status: await readJson<MapsStatus>(db, MAPS_STATUS, {}) });
+});
+config.put('/maps/google', async (c) => {
+  const input = await body(c, z.object({ key: z.string().trim().regex(/^[A-Za-z0-9_-]{30,60}$/, "That isn't a Google API key. It starts with AIza."), code }));
+  await stepUp(c, input.code);
+  const r = await checkGoogle(c, input.key);
+  if (!r.places) throw new Fail(422, 'google', r.error ?? 'Google refused the key.');
+  await save(c, 'GOOGLE_PLACES_KEY', input.key);
+  const status = await readJson<MapsStatus>(c.get('deps').db, MAPS_STATUS, {});
+  await putJson(c, MAPS_STATUS, { ...status, google: { places: true, routes: r.routes, at: new Date().toISOString() } });
+  await audit(c, 'maps.google', null, { routes: r.routes, ends: input.key.slice(-4) });
+  return c.json({ ok: true, routes: r.routes });
+});
+config.put('/maps/ors', async (c) => {
+  const input = await body(c, z.object({ key: z.string().trim().min(20, "That isn't an openrouteservice key.").max(200).regex(/^[A-Za-z0-9=_-]+$/, "That isn't an openrouteservice key."), code }));
+  await stepUp(c, input.code);
+  const err = await checkOrs(c, input.key);
+  if (err) throw new Fail(422, 'ors', err);
+  await save(c, 'ORS_API_KEY', input.key);
+  const status = await readJson<MapsStatus>(c.get('deps').db, MAPS_STATUS, {});
+  await putJson(c, MAPS_STATUS, { ...status, ors: { ok: true, at: new Date().toISOString() } });
+  await audit(c, 'maps.ors', null, { ends: input.key.slice(-4) });
+  return c.json({ ok: true });
+});
+/** Checks the saved keys again, for example after turning on Routes API in Google Cloud. Changes no key. */
+config.post('/maps/check', async (c) => {
+  need(c, 'super');
+  const keys = await saved(c);
+  const status = await readJson<MapsStatus>(c.get('deps').db, MAPS_STATUS, {});
+  const at = new Date().toISOString();
+  let error: string | null = null;
+  if (keys.GOOGLE_PLACES_KEY) { const r = await checkGoogle(c, keys.GOOGLE_PLACES_KEY); status.google = { places: r.places, routes: r.routes, at }; error = r.error; }
+  if (keys.ORS_API_KEY) { const e = await checkOrs(c, keys.ORS_API_KEY); status.ors = { ok: !e, at }; error = error ?? e; }
+  await putJson(c, MAPS_STATUS, status);
+  return c.json({ status, error });
+});
+config.post('/maps/:service/remove', async (c) => {
+  const service = c.req.param('service');
+  if (service !== 'google' && service !== 'ors') throw new Fail(404, 'not_found', 'Not found.');
+  const input = await body(c, z.object({ code }));
+  await stepUp(c, input.code);
+  await save(c, service === 'google' ? 'GOOGLE_PLACES_KEY' : 'ORS_API_KEY', null);
+  const status = await readJson<MapsStatus>(c.get('deps').db, MAPS_STATUS, {});
+  delete status[service];
+  await putJson(c, MAPS_STATUS, status);
+  await audit(c, `maps.${service}.remove`, null);
+  return c.json({ ok: true });
+});
+
 // ---------- categories ----------
 config.delete('/categories/:key', async (c) => {
   need(c, 'super');

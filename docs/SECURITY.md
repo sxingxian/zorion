@@ -75,7 +75,7 @@ Card details never reach Zorion. Checkout and the customer portal are Stripe's o
 
 ## Keys entered in the admin portal
 
-- Stripe, Telegram and Resend keys are entered in the admin portal, not Cloudflare. They are encrypted with AES-GCM under a key derived from `TOTP_KEY` before they are stored, and the portal only ever shows the last four characters.
+- Stripe, Telegram, Resend, Google and openrouteservice keys are entered in the admin portal, not Cloudflare. Each is checked with one real request before it is saved. They are encrypted with AES-GCM under a key derived from `TOTP_KEY` before they are stored, and the portal only ever shows the last four characters.
 - Saving or removing a key, connecting the Stripe webhook, inviting an admin or switching one off needs a super admin and a fresh authenticator code (a used code can't be replayed), and is written to the audit log.
 - Admins are invited by a one-time link that expires in 24 hours. The invitee sets their own password and authenticator.
 
