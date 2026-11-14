@@ -2,7 +2,7 @@ import type { Point } from '@zorion/core';
 import type { Deps } from './core';
 import { isGoogleRefusal, pauseGoogle, takeGoogle } from '@zorion/server/usage';
 import { geoapifyLookup } from './geoapify';
-import { onemapLookup } from './onemap';
+import { inSingaporeBounds, onemapLookup } from './onemap';
 import { activeProvider } from './places';
 
 export interface StartResult extends Point {
@@ -75,7 +75,8 @@ export type LookupSource = 'google' | 'onemap' | 'geoapify' | 'osm';
 export async function findStart(deps: Deps, raw: string, near: Near): Promise<{ results: StartResult[]; source: LookupSource | null }> {
   const q = tidy(raw);
   if (q.length < 3) return { results: [], source: null };
-  const inSingapore = !near.country || near.country.toUpperCase() === 'SG';
+  // OneMap only knows Singapore. Searches for anywhere else skip it and go straight to the next service.
+  const inSingapore = near.country?.toUpperCase() === 'SG' || (!near.country && near.lat !== undefined && near.lng !== undefined && inSingaporeBounds({ lat: near.lat, lng: near.lng }));
   const ladder: Array<[LookupSource, () => Promise<StartResult[]>]> = [];
   if ((await activeProvider(deps)) === 'google') ladder.push(['google', async () => {
     if (!(await takeGoogle(deps.db, 'lookup', 1, deps.now()))) throw new Error('Google allowance used');

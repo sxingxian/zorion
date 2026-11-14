@@ -8,6 +8,8 @@ import type { StartResult } from './geocode';
 
 const BASE = 'https://www.onemap.gov.sg';
 export const ONEMAP_MAX_PAIRS = 60; // per meetup: enough for 6 people by 10 places
+/** Singapore, with a little sea around it. OneMap has no data outside. */
+export const inSingaporeBounds = (p: Point) => p.lat >= 1.13 && p.lat <= 1.5 && p.lng >= 103.55 && p.lng <= 104.13;
 const tokens = new Map<string, { token: string; expires: number }>();
 
 async function token(deps: Deps): Promise<string> {
@@ -56,6 +58,8 @@ function sgDateTime(at: Date): { date: string; time: string } {
 }
 
 export async function onemapMatrix(deps: Deps, origins: readonly Point[], destinations: readonly Point[], mode: TravelMode, at: Date | null): Promise<(number | null)[][]> {
+  // Outside Singapore, hand over at once rather than asking OneMap for trips it can't route.
+  if (![...origins, ...destinations].every(inSingaporeBounds)) throw new Error('outside Singapore');
   if (origins.length * destinations.length > ONEMAP_MAX_PAIRS) throw new Error('too many pairs for OneMap');
   if (await isPaused(deps.db, 'onemap', deps.now())) throw new Error('OneMap paused');
   const auth = await token(deps);

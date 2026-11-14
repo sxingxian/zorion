@@ -167,6 +167,8 @@ The Workers' first deploy creates both records (section 2). Keep the orange-clou
 | Walking and cycling times | Your choice → openrouteservice → Geoapify → OpenStreetMap routing → OneMap → Zorion's estimate |
 | Transit times | Your choice (Google or OneMap) → OneMap → Zorion's estimate |
 
+OneMap only covers Singapore. A meetup outside Singapore skips it straight away, with no request sent: trip times come from the next service, and transit falls back to Google (if chosen) or the estimate. For starting places, the meetup decides which country to search, not where the person is: a guest overseas joining a Singapore meetup still searches Singapore, and someone in Singapore planning a meetup elsewhere is not held to Singapore.
+
 If trip times are set to Zorion's estimate, nothing is routed. The app shows where each list came from ("Places: Geoapify · Trip times: OneMap"), with the credit lines OpenStreetMap, Geoapify and OneMap ask for, and the starting-place picker says which service gave its matches.
 
 The public OpenStreetMap servers allow light use only; connecting Geoapify takes most of that load. You can also point `OVERPASS_URL` and `NOMINATIM_URL` (variables on `zorion-app`) at your own servers.

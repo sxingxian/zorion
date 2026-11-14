@@ -54,7 +54,7 @@ export function tripMinutes(L: Loaded, person: Row, place: Row): number | null {
  * Typed starting place. Limited per network, because every lookup is a call to an outside service.
  * `cf` is Cloudflare's rough idea of where the caller is; it only puts nearby results first.
  */
-export async function lookupStart(c: C, q: string) {
+export async function lookupStart(c: C, q: string, meetupZone: string) {
   const deps = c.get('deps');
   const key = `start-search:${await clientKey(c)}`;
   await guardLock(deps.db, key);
@@ -63,10 +63,21 @@ export async function lookupStart(c: C, q: string) {
   const lat = Number(cf?.latitude);
   const lng = Number(cf?.longitude);
   try {
-    return await findStart(deps, q, { country: cf?.country, ...(Number.isFinite(lat) && Number.isFinite(lng) && cf?.latitude ? { lat, lng } : {}) });
+    return await findStart(deps, q, { country: searchCountry(meetupZone, cf?.country), ...(Number.isFinite(lat) && Number.isFinite(lng) && cf?.latitude ? { lat, lng } : {}) });
   } catch {
     throw new Fail(409, 'search_failed', "Place search isn't responding. Try again, or share your location.");
   }
+}
+
+/**
+ * Which country to look in. The meetup decides, not where the person happens to be: a guest flying in
+ * to a Singapore meetup still searches Singapore (and gets OneMap), and someone in Singapore planning a
+ * meetup elsewhere isn't held to Singapore. Otherwise the person's own country, as Cloudflare sees it.
+ */
+export function searchCountry(meetupZone: string, callerCountry: string | undefined): string | undefined {
+  if (meetupZone === 'Asia/Singapore') return 'SG';
+  const caller = callerCountry && /^[A-Za-z]{2}$/.test(callerCountry) ? callerCountry.toUpperCase() : undefined;
+  return caller === 'SG' || caller === 'XX' || caller === 'T1' ? undefined : caller; // XX: unknown, T1: Tor
 }
 
 const voters = (L: Loaded): Voter[] =>
@@ -296,9 +307,9 @@ meetups.post('/:id/location', async (c) => {
 
 /** Type a starting place instead of sharing GPS. Returns up to five matches to choose from. */
 meetups.post('/:id/start-search', async (c) => {
-  await owned(c);
+  const L = await owned(c);
   const { q } = await body(c, schemas.startSearch);
-  return c.json(await lookupStart(c, q)); // { results, source }
+  return c.json(await lookupStart(c, q, L.m.time_zone)); // { results, source }
 });
 
 /** The host votes first, before the link goes out. */

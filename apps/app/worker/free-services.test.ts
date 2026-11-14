@@ -7,6 +7,7 @@ import { matrixCredits } from './geoapify';
 import { forgetOneMapToken } from './onemap';
 import { findPlaces } from './places';
 import { routeWithLadder, routingLadder } from './routing';
+import { searchCountry } from './meetups';
 
 const env: Env = { DATABASE_URL: '', APP_ORIGIN: 'http://localhost:5173', SITE_ORIGIN: 'http://localhost:5174', PEPPER: 'p', TOTP_KEY: btoa('0123456789abcdef0123456789abcdef'), ENVIRONMENT: 'development', GEOAPIFY_KEY: 'geo-key', ONEMAP_EMAIL: 'ops@example.sg', ONEMAP_PASSWORD: 'pw', OSRM_FOOT_URL: 'https://osrm.example/foot' };
 const now = new Date('2026-11-14T04:00:00Z');
@@ -119,6 +120,33 @@ describe('OneMap', () => {
     expect(ladder).toEqual(['onemap', 'geoapify', 'osrm']);
     expect((await routeWithLadder(deps, ladder, from, to, 'walk', null)).source).toBe('geoapify');
     expect((await usageReport(db, now)).paused.onemap).not.toBeNull();
+  });
+});
+
+describe('overseas', () => {
+  it('the meetup decides which country to search, not where the person is', () => {
+    expect(searchCountry('Asia/Singapore', 'MY')).toBe('SG'); // a guest in Malaysia joining a Singapore meetup still gets OneMap
+    expect(searchCountry('Asia/Bangkok', 'SG')).toBeUndefined(); // someone in Singapore planning a Bangkok meetup isn't held to Singapore
+    expect(searchCountry('Asia/Kuala_Lumpur', 'MY')).toBe('MY');
+    expect(searchCountry('Europe/London', 'XX')).toBeUndefined();
+  });
+
+  it('a meetup outside Singapore never asks OneMap for trip times: the next service answers straight away', async () => {
+    const { db, deps, calls } = await setup();
+    await db.query("insert into settings (key, value) values ('routing_provider', '\"onemap\"') on conflict (key) do update set value = excluded.value");
+    const kl = [{ lat: 3.139, lng: 101.687 }];
+    const klPlaces = [{ lat: 3.15, lng: 101.71 }, { lat: 3.16, lng: 101.72 }];
+    const r = await routeWithLadder(deps, await routingLadder(deps, 'walk'), kl, klPlaces, 'walk', null);
+    expect(r.source).toBe('geoapify');
+    expect(calls.some((c) => c.url.includes('onemap'))).toBe(false); // not even a sign-in
+    await expect(routeWithLadder(deps, await routingLadder(deps, 'transit'), kl, klPlaces, 'transit', null)).rejects.toThrow(); // transit: Zorion's estimate
+    expect(calls.some((c) => c.url.includes('onemap'))).toBe(false);
+  });
+
+  it('a lookup outside Singapore skips OneMap', async () => {
+    const { deps, calls } = await setup();
+    expect((await findStart(deps, 'Petronas Towers', { lat: 3.139, lng: 101.687 })).source).toBe('geoapify');
+    expect(calls.some((c) => c.url.includes('onemap'))).toBe(false);
   });
 });
 

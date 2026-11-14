@@ -233,7 +233,7 @@ guest.post('/:token/start-search', async (c) => {
   await me(c, L);
   replyOnly(L);
   const { q } = await body(c, schemas.startSearch);
-  return c.json(await lookupStart(c, q)); // { results, source }
+  return c.json(await lookupStart(c, q, L.m.time_zone)); // { results, source }
 });
 
 guest.post('/:token/categories', async (c) => {
