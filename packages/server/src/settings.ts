@@ -28,8 +28,9 @@ export async function cachedSettings(db: Db, totpKey: string, maxAgeMs = 30_000)
 }
 export const forgetCachedSettings = (db: Db): void => { cache.delete(db); };
 
-export async function saveSetting(db: Db, totpKey: string, name: SettingName, value: string | null): Promise<void> {
+export async function saveSetting(db: Db, totpKey: string, name: SettingName, raw: string | null): Promise<void> {
   cache.delete(db);
+  const value = raw === null ? null : raw.trim();
   if (value === null || value === '') {
     await db.query('delete from settings where key = $1', [rowKey(name)]);
     return;
@@ -71,6 +72,23 @@ export async function settingsStatus(db: Db, env: Record<string, unknown>): Prom
   }
   return out;
 }
+
+/**
+ * Keys pasted on a phone often carry a space or line break, which makes the request fail before it
+ * leaves (a line break is not allowed in a header). Strip them from every setting, wherever it came from.
+ */
+export function tidySettings<T extends Record<string, unknown>>(env: T): T {
+  const out: Record<string, unknown> = { ...env };
+  for (const name of [...SECRET_SETTINGS, ...PLAIN_SETTINGS]) {
+    const v = out[name];
+    if (typeof v === 'string') out[name] = v.trim().replace(/^(["'])(.*)\1$/, '$2').trim() || undefined;
+  }
+  return out as T;
+}
+
+/** The result of the app's last email attempt, shown in the admin portal. Never holds a key or an address. */
+export interface EmailStatus { ok: boolean; at: string; from: string; key: 'portal' | 'worker' | 'none'; reason?: string }
+export const EMAIL_STATUS_KEY = 'email_status';
 
 export async function readJson<T>(db: Db, key: string, fallback: T): Promise<T> {
   const row = await one(db, 'select value from settings where key = $1', [key]);

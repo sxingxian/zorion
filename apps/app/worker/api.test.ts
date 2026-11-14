@@ -410,3 +410,38 @@ describe('plans and settings from the admin portal', () => {
     await db.query("delete from settings where key in ('plans', 'env:STRIPE_SECRET_KEY')");
   });
 });
+
+describe('email in production', () => {
+  it('says plainly when Resend refuses, records why for the admin portal, and tidies pasted keys', async () => {
+    const db = await testDb();
+    const seen: Array<{ auth: string; from: string }> = [];
+    const resend = (async (url: string, init: RequestInit) => {
+      expect(String(url)).toBe('https://api.resend.com/emails');
+      const headers = init.headers as Record<string, string>;
+      seen.push({ auth: headers.authorization!, from: JSON.parse(String(init.body)).from });
+      return Response.json({ statusCode: 403, name: 'validation_error', message: 'The app.midnightpoetry.studio domain is not verified.' }, { status: 403 });
+    }) as unknown as typeof fetch;
+    // A key pasted with a trailing line break, and a sender pasted with quotes around it.
+    const prod: Env = { ...env, ENVIRONMENT: 'production', RESEND_API_KEY: ['re', 'abcdefghijklmnopqrstuvwx\n'].join('_'), EMAIL_FROM: '"Zorion <noreply@app.midnightpoetry.studio>"' };
+    const b = browser(createApp({ db, env: prod, fetch: resend, now: () => clock, outbox: [] }));
+    const res = await b('POST', '/api/auth/email-code', { email: 'someone@example.com' });
+    expect(res.status).toBe(503);
+    expect(res.body).toMatchObject({ error: 'email_failed', message: "We couldn't send the email. Please try again in a few minutes." });
+    expect(seen[0]).toEqual({ auth: `Bearer ${['re', 'abcdefghijklmnopqrstuvwx'].join('_')}`, from: 'Zorion <noreply@app.midnightpoetry.studio>' });
+    const [row] = await db.query("select value from settings where key = 'email_status'");
+    expect(row!.value).toMatchObject({ ok: false, key: 'worker', from: 'Zorion <noreply@app.midnightpoetry.studio>', reason: 'Resend 403: The app.midnightpoetry.studio domain is not verified.' });
+    expect(JSON.stringify(row!.value)).not.toContain('someone@example.com');
+    expect(JSON.stringify(row!.value)).not.toContain('abcdefgh');
+  });
+
+  it('records a success, and a missing key as a reason rather than a crash', async () => {
+    const db = await testDb();
+    const ok = (async () => Response.json({ id: 'x' })) as unknown as typeof fetch;
+    const prod: Env = { ...env, ENVIRONMENT: 'production', RESEND_API_KEY: ['re', 'abcdefghijklmnopqrstuvwx'].join('_') };
+    expect((await browser(createApp({ db, env: prod, fetch: ok, now: () => clock, outbox: [] }))('POST', '/api/auth/email-code', { email: 'a@example.com' })).status).toBe(200);
+    expect((await db.query("select value from settings where key = 'email_status'"))[0]!.value).toMatchObject({ ok: true, from: 'Zorion <noreply@app.midnightpoetry.studio>' });
+    const none: Env = { ...env, ENVIRONMENT: 'production' };
+    expect((await browser(createApp({ db, env: none, fetch: ok, now: () => clock, outbox: [] }))('POST', '/api/auth/email-code', { email: 'b@example.com' })).status).toBe(503);
+    expect((await db.query("select value from settings where key = 'email_status'"))[0]!.value).toMatchObject({ ok: false, key: 'none', reason: expect.stringContaining('No Resend key') });
+  });
+});

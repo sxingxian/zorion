@@ -96,7 +96,9 @@ describe('keys set in the admin portal', () => {
 
   it('saves the email sender and sends a test to the admin', async () => {
     expect((await b('PUT', '/email', { apiKey: ['re', 'abcdefghijklmnopqrstuvwx'].join('_'), from: 'Zorion <noreply@app.midnightpoetry.studio>', code: await nextCode() })).body).toEqual({ ok: true });
-    expect((await b('GET', '/email')).body).toMatchObject({ from: 'Zorion <noreply@app.midnightpoetry.studio>', key: { set: true, hint: 'uvwx' } });
+    expect((await b('GET', '/email')).body).toMatchObject({ from: 'Zorion <noreply@app.midnightpoetry.studio>', key: { set: true, hint: 'uvwx' }, last: null });
+    await db.query("insert into settings (key, value) values ('email_status', $1)", [JSON.stringify({ ok: false, at: '2026-11-14T06:25:00Z', from: 'x', key: 'worker', reason: 'Resend 403: not verified' })]);
+    expect((await b('GET', '/email')).body.last).toMatchObject({ ok: false, reason: 'Resend 403: not verified' });
     expect((await b('POST', '/email/test')).body).toEqual({ ok: true, to: 'root@example.com' });
   });
 });

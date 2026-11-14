@@ -238,9 +238,10 @@ function Overview({ go }: { go: (to: string) => void }) {
   if (!d) return <Loading title="Overview" error={error} />;
   const meetups = d.meetups as Record<string, number>;
   const live = Object.entries(meetups).filter(([k]) => k !== 'ended').reduce((s, [, n]) => s + n, 0);
-  const setup: Array<[string, boolean, string]> = [
+  const mailFailing = (mail?.last as { ok?: boolean } | null | undefined)?.ok === false;
+  const setup: Array<[string, boolean, string, string?]> = [
     ['Payments', !!pay?.key?.set && !!pay?.webhook?.set && !!pay?.prices?.monthly, '/admin/payments'],
-    ['Email', !!mail?.key?.set, '/admin/email'],
+    ['Email', !!mail?.key?.set && !mailFailing, '/admin/email', mailFailing ? 'Last send failed' : undefined],
     ['Telegram', !!tg?.token?.set, '/admin/telegram'],
   ];
   return (
@@ -254,7 +255,7 @@ function Overview({ go }: { go: (to: string) => void }) {
       <div className="cards">
         <section>
           <h2>Set-up</h2>
-          {setup.map(([label, ok, to]) => <div className="line" key={label}><span>{label}</span><span style={{ display: 'flex', gap: 8, alignItems: 'center' }}><Status ok={ok}>{ok ? 'Ready' : 'Not set up'}</Status><button className="btn" onClick={() => go(to)}>Open</button></span></div>)}
+          {setup.map(([label, ok, to, why]) => <div className="line" key={label}><span>{label}</span><span style={{ display: 'flex', gap: 8, alignItems: 'center' }}><Status ok={ok}>{ok ? 'Ready' : why ?? 'Not set up'}</Status><button className="btn" onClick={() => go(to)}>Open</button></span></div>)}
         </section>
         <section><h2>Meetups by stage</h2>{[['draft', 'Draft'], ['date_vote', 'Date vote'], ['voting', 'Food vote'], ['places', 'Picking places'], ['place_vote', 'Place vote'], ['confirmed', 'Confirmed'], ['ended', 'Ended']].map(([k, l]) => <div className="line" key={k}><span>{l}</span><strong>{meetups[k!] ?? 0}</strong></div>)}</section>
       </div>
@@ -514,6 +515,20 @@ function TelegramPage({ admin }: { admin: AdminUser }) {
 }
 
 // ---------- email ----------
+interface EmailStatus { ok: boolean; at: string; from: string; key: 'portal' | 'worker' | 'none'; reason?: string }
+const KEY_FROM = { portal: 'the key saved here', worker: 'the key set on zorion-app in Cloudflare', none: 'no key' } as const;
+
+/** What happened the last time the app tried to send an email, so a failure is never a mystery. */
+function LastEmail({ last }: { last: EmailStatus | null }) {
+  if (!last) return <div className="line"><span>Last email from the app</span><strong>None yet</strong></div>;
+  return (
+    <>
+      <div className="line"><span>Last email from the app</span><strong>{last.ok ? 'Sent' : 'Failed'}, {new Date(last.at).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</strong></div>
+      {!last.ok && <div className="err" role="status" style={{ overflowWrap: 'anywhere' }}>{last.reason}<br /><span className="sub">Sent from {last.from || 'no address'}, using {KEY_FROM[last.key]}.</span></div>}
+    </>
+  );
+}
+
 function EmailPage({ admin }: { admin: AdminUser }) {
   const [d, reload, error] = useLoad<R>('/email');
   const [key, setKey] = useState('');
@@ -530,6 +545,7 @@ function EmailPage({ admin }: { admin: AdminUser }) {
           <h2>Status</h2>
           <div className="line"><span>Resend key</span><Secret s={d.key} /></div>
           <div className="line"><span>Sent from</span><strong style={{ overflowWrap: 'anywhere' }}>{d.from}</strong></div>
+          <LastEmail last={d.last as EmailStatus | null} />
           {edit && <button className="btn" disabled={busy || !d.key.set} onClick={() => run(async () => { const r = await call('POST', '/email/test'); return r; }, 'Test email sent to you.')}>Send me a test email</button>}
         </section>
         {edit && <section>
