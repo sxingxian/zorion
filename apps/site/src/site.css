@@ -228,6 +228,7 @@ button, input, select { font: inherit; color: inherit; }
 .adm .warn { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; padding: 12px 14px; border-radius: 12px; background: #fff4e5; color: #6b3d00; font-size: 14px; }
 .adm .warn a { color: inherit; font-weight: 700; }
 .adm .err { background: #fdecea; color: #7a1c14; border-radius: 12px; padding: 12px 14px; font-weight: 600; overflow-wrap: anywhere; }
+.adm .keybox { display: flex; flex-direction: column; gap: 12px; padding: 16px; border-radius: 14px; background: #f7f7f9; border: 1px solid #ececf0; }
 .adm .confirm { padding: 14px; border-radius: 12px; border: 1px solid #f1c3bf; background: #fff7f6; display: flex; flex-direction: column; gap: 12px; }
 /* lists */
 .adm .icons { display: flex; flex-wrap: wrap; gap: 6px; }

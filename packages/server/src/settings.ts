@@ -4,7 +4,7 @@
 import { type Db, one } from '@zorion/db';
 import { seal, unseal } from './crypto';
 
-export const SECRET_SETTINGS = ['STRIPE_SECRET_KEY', 'STRIPE_WEBHOOK_SECRET', 'TELEGRAM_BOT_TOKEN', 'TELEGRAM_WEBHOOK_SECRET', 'RESEND_API_KEY'] as const;
+export const SECRET_SETTINGS = ['STRIPE_SECRET_KEY', 'STRIPE_WEBHOOK_SECRET', 'TELEGRAM_BOT_TOKEN', 'TELEGRAM_WEBHOOK_SECRET', 'RESEND_API_KEY', 'GOOGLE_PLACES_KEY', 'ORS_API_KEY'] as const;
 export const PLAIN_SETTINGS = ['TELEGRAM_BOT_USERNAME', 'EMAIL_FROM'] as const;
 export type SettingName = (typeof SECRET_SETTINGS)[number] | (typeof PLAIN_SETTINGS)[number];
 export const isSettingName = (n: string): n is SettingName => (SECRET_SETTINGS as readonly string[]).includes(n) || (PLAIN_SETTINGS as readonly string[]).includes(n);

@@ -63,6 +63,8 @@ test('admin: password, then authenticator; a setting change lands in the audit l
   await page.getByRole('link', { name: 'Categories', exact: true }).click();
   await page.getByLabel('Trip times come from').selectOption('google');
   await expect(page.getByRole('status')).toHaveText('Saved');
+  await expect(page.getByLabel('Google key')).toBeVisible(); // the key field appears under the choice that needs it
+  await expect(page.getByText("Until a key is connected, trip times use Zorion's estimate.")).toBeVisible();
   await page.getByLabel('Trip times come from').selectOption('estimate'); // leave the demo as it was
   await page.getByRole('link', { name: 'Admins', exact: true }).click();
   await expect(page.getByText('Changed trip times to Google routes').first()).toBeVisible(); // the log reads in plain words
