@@ -4,7 +4,7 @@ import { AVATARS, LIMITS, PRO_AVATARS, cleanName } from '@zorion/core';
 import * as schemas from '@zorion/core/schemas';
 import { one } from '@zorion/db';
 import { connectLink, telegramReady } from './telegram';
-import { type App, type C, Fail, body, clearStrikes, clientKey, endSession, features, guardLock, requireUser, sendEmail, startSession, strike, toUser, upgrade } from './core';
+import { type App, type C, Fail, body, clearStrikes, clientKey, endSession, features, guardLock, requireUser, sendEmail, startSession, strike, toUser, upgrade, USER_COLUMNS } from './core';
 import { hashPassword, hmac, newTotpSecret, otpauthUri, randomDigits, randomToken, safeEqual, seal, sha256, unseal, verifyPassword, verifyTotp } from './crypto';
 
 /**
@@ -176,7 +176,7 @@ account.patch('/', async (c) => {
   const name = input.displayName === undefined ? undefined : cleanName(input.displayName, LIMITS.inviteeName);
   if (input.displayName !== undefined && !name) throw new Fail(422, 'invalid', 'Enter a name.');
   const row = await one(c.get('deps').db, `update users u set theme = coalesce($2, theme), display_name = coalesce($3, display_name), notify = coalesce($4, notify), avatar = coalesce($5, avatar) where id = $1
-     returning u.id, u.email, u.display_name, u.plan, u.theme, u.status, u.totp_enabled, (u.password_hash is not null) as has_password, u.notify, (u.telegram_chat_id is not null) as telegram, u.avatar`, [user.id, input.theme ?? null, name ?? null, input.notify ?? null, input.avatar ?? null]);
+     returning ${USER_COLUMNS}`, [user.id, input.theme ?? null, name ?? null, input.notify ?? null, input.avatar ?? null]);
   return c.json({ user: toUser(row!) });
 });
 

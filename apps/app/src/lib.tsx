@@ -149,6 +149,7 @@ export interface Me {
   email: string;
   display_name: string;
   plan: 'free' | 'pro';
+  pro: { paid: boolean; givenUntil: string | null; givenForever: boolean }; // paid through Stripe, or given by Zorion
   theme: 'gold' | 'pink';
   totp_enabled: boolean;
   has_password: boolean;

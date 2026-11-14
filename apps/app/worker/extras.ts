@@ -1,8 +1,8 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
-import { tidyMapSettings } from '@zorion/core';
+import { PRO_AVATARS, tidyMapSettings } from '@zorion/core';
 import { type Db, one } from '@zorion/db';
-import { type App, type Deps, Fail, body, features, getPlans, requireUser } from './core';
+import { type App, type Deps, Fail, PLAN_SQL, body, features, getPlans, requireUser } from './core';
 import { hmac, safeEqual } from './crypto';
 import { ensureTelegramWebhook } from './telegram';
 
@@ -67,7 +67,7 @@ async function setPlan(db: Db, where: { userId?: string; customer?: string }, pl
     ? (await db.query('select id from users where id = $1', [where.userId]))[0]
     : (await db.query('select id from users where stripe_customer_id = $1', [where.customer]))[0];
   if (!user) return;
-  await db.query('update users set plan = $2, stripe_customer_id = coalesce($3, stripe_customer_id), theme = case when $2 = $4 then theme else $5 end where id = $1', [user.id, plan, customer ?? null, 'pro', 'gold']);
+  await db.query('update users set plan = $2, stripe_customer_id = coalesce($3, stripe_customer_id), theme = case when $2 = $4 or pro_grant_until > now() then theme else $5 end where id = $1', [user.id, plan, customer ?? null, 'pro', 'gold']);
   if (sub) {
     await db.query(
       `insert into subscriptions (user_id, stripe_subscription_id, status, current_period_end) values ($1, $2, $3, to_timestamp($4::double precision))
@@ -157,6 +157,8 @@ export async function cleanUp(db: Db): Promise<void> {
     ["delete from email_codes where expires_at < now() - interval '1 day'", []],
     ["delete from throttles where coalesce(locked_until, window_start) < now() - interval '1 day'", []],
     ["delete from stripe_events where received_at < now() - interval '30 days'", []],
+    // When Pro ends (paid or given), Pro-only pigs go back to the chef, so guests don't keep seeing them.
+    [`update users u set avatar = 'chef' where u.avatar = any($1::text[]) and ${PLAN_SQL} = 'free'`, [[...PRO_AVATARS]]],
   ]);
 }
 

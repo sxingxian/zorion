@@ -64,7 +64,8 @@ Card details never reach Zorion. Checkout and the customer portal are Stripe's o
 - Password and authenticator, always both. No email sign-in, no recovery by email.
 - Signed out after 30 idle minutes. Five wrong tries pause sign-in for 30 minutes.
 - Support admins see masked emails and cannot change rules.
-- Suspending or deleting a host and every ads change need a second admin to approve, once there are two admins.
+- Suspending or deleting a host, giving or removing Pro, and every ads change need a second admin to approve, once there are two admins.
+- Pro given by an admin is stored apart from paid Pro (`users.pro_grant_until`, `users.plan`). Stripe only ever changes paid Pro, and giving Pro never touches a subscription. Given Pro ends by itself at the close of the chosen day in Singapore; the server checks the end date on every request.
 - Every sign-in and change is written to an audit log.
 - The first admin is created in the browser with a one-time setup token, only while no admin exists; more admins are created from the command line.
 

@@ -395,7 +395,7 @@ function Overview() {
       <Head title="Overview"><div className="chips" role="group" aria-label="Period">{([7, 30] as const).map((n) => <button key={n} type="button" aria-pressed={days === n} onClick={() => setDays(n)}>{n} days</button>)}</div></Head>
       <div className="kpis">
         <section><span className="sub">Hosts</span><span className="stat">{u.hosts}</span><span className="sub">+{u.new_hosts} in {days} days</span></section>
-        <section><span className="sub">Pro</span><span className="stat">{u.pro}</span><span className="sub">{u.hosts ? Math.round((u.pro / u.hosts) * 100) : 0}% of hosts</span></section>
+        <section><span className="sub">Pro</span><span className="stat">{u.pro}</span><span className="sub">{u.hosts ? Math.round((u.pro / u.hosts) * 100) : 0}% of hosts{u.pro_given ? ` · ${u.pro_given} given` : ''}</span></section>
         <section><span className="sub">Meetups made</span><span className="stat">{p.made}</span><span className="sub">{change === null ? `in ${days} days` : `${change >= 0 ? '+' : ''}${change}% on the ${days} before`}</span></section>
         <section><span className="sub">Confirmed</span><span className="stat">{p.confirmed}</span><span className="sub">{p.made ? Math.round((p.confirmed / p.made) * 100) : 0}% of meetups made</span></section>
         <section><span className="sub">Guests joined</span><span className="stat">{p.guests}</span><span className="sub">{p.made ? (p.guests / p.made).toFixed(1) : '0'} per meetup</span></section>
@@ -1065,6 +1065,25 @@ function Ads({ admin, propose }: { admin: AdminUser; propose: (action: string, p
 }
 
 // ---------- users ----------
+const GIVE_LENGTHS: Array<[number, string]> = [[1, '1 month'], [3, '3 months'], [12, '1 year'], [0, 'No end date']];
+/** The last day of Pro, some months from today in Singapore, as YYYY-MM-DD. */
+function addMonthsSg(months: number): string {
+  const d = new Date(Date.now() + 8 * 3_600_000);
+  const day = d.getUTCDate();
+  d.setUTCDate(1);
+  d.setUTCMonth(d.getUTCMonth() + months);
+  d.setUTCDate(Math.min(day, new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate()));
+  return d.toISOString().slice(0, 10);
+}
+const dateOnly = (ymd: string) => new Date(`${ymd}T12:00:00Z`).toLocaleDateString('en-SG', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
+/** Pro given until a date is stored as the start of the next day in Singapore; show the last day. */
+const lastDay = (until: string) => new Date(new Date(until).getTime() + 8 * 3_600_000 - 1).toISOString().slice(0, 10);
+function proLabel(u: R): string {
+  if (u.plan !== 'pro') return 'Free';
+  if (u.paid) return 'Pro · paid';
+  return u.given_forever ? 'Pro · given, no end date' : `Pro · given until ${dateOnly(lastDay(u.given_until))}`;
+}
+
 function Users({ admin, propose }: { admin: AdminUser; propose: (action: string, payload: unknown) => Promise<boolean> }) {
   const { toast } = useKit();
   const [typed, setTyped] = useState('');
@@ -1075,8 +1094,10 @@ function Users({ admin, propose }: { admin: AdminUser; propose: (action: string,
   useEffect(() => setPage(1), [q, plan]);
   const [d, reload, error] = useLoad<R>(`/users?q=${encodeURIComponent(q)}&plan=${plan}&page=${page}`);
   const [sel, setSel] = useState<R | null>(null);
-  const [sure, setSure] = useState<'suspend' | 'delete' | null>(null);
-  useEffect(() => setSure(null), [sel]);
+  const [sure, setSure] = useState<'suspend' | 'delete' | 'give' | 'remove' | null>(null);
+  const [months, setMonths] = useState<number>(1); // 0 = no end date
+  const [note, setNote] = useState('');
+  useEffect(() => { setSure(null); setMonths(1); setNote(''); }, [sel]);
   const [run, busy, err] = useRun();
   const act = (action: string, payload: unknown, done: string) => run(async () => { if (await propose(action, payload)) toast(done); setSel(null); reload(); });
   const users = (d?.users as R[] | undefined) ?? null;
@@ -1093,7 +1114,7 @@ function Users({ admin, propose }: { admin: AdminUser; propose: (action: string,
               <tbody>{users.map((u) => (
                 <tr key={u.id} className={sel?.id === u.id ? 'on' : ''} onClick={() => setSel(u)}>
                   <td><button type="button" className="rowbtn" onClick={() => setSel(u)}><span className="pigdot" dangerouslySetInnerHTML={{ __html: `<svg viewBox="${AVATAR_VIEWBOX}" width="26" height="26">${AVATAR_ART[(u.avatar as Avatar) in AVATAR_ART ? (u.avatar as Avatar) : 'chef']}</svg>` }} /><span><strong>{u.display_name}</strong><br /><span className="sub">{u.email}</span></span></button></td>
-                  <td>{u.status === 'suspended' ? <Status kind="bad">Suspended</Status> : u.plan === 'pro' ? <Status kind="pink">Pro</Status> : <Status kind="off">Free</Status>}</td>
+                  <td>{u.status === 'suspended' ? <Status kind="bad">Suspended</Status> : u.plan === 'pro' ? <Status kind="pink">{u.paid ? 'Pro' : 'Pro · given'}</Status> : <Status kind="off">Free</Status>}</td>
                   <td>{u.meetups}</td><td className="sub nowrap">{date(u.created_at)}</td><td className="sub nowrap">{ago(u.last_sign_in_at)}</td>
                 </tr>
               ))}</tbody>
@@ -1105,17 +1126,34 @@ function Users({ admin, propose }: { admin: AdminUser; propose: (action: string,
         {sel && <section>
           <div className="line flat"><h2 style={{ overflowWrap: 'anywhere' }}>{sel.display_name}</h2><button className="btn link" onClick={() => setSel(null)}>Close</button></div>
           <div className="line"><span className="sub">Email</span><strong style={{ overflowWrap: 'anywhere' }}>{sel.email}</strong></div>
-          <div className="line"><span className="sub">Plan</span><strong>{sel.plan === 'pro' ? 'Pro' : 'Free'}</strong></div>
+          <div className="line"><span className="sub">Plan</span><strong>{proLabel(sel)}</strong></div>
+          {sel.plan === 'pro' && !sel.paid && sel.given_note && <div className="line"><span className="sub">Note</span><span style={{ overflowWrap: 'anywhere', textAlign: 'right' }}>{sel.given_note}</span></div>}
           <div className="line"><span className="sub">Meetups hosted</span><strong>{sel.meetups}</strong></div>
           <div className="line"><span className="sub">Last sign-in</span><strong>{date(sel.last_sign_in_at)}</strong></div>
           <div className="line"><span className="sub">Two-step</span><strong>{sel.totp_enabled ? 'On' : 'Off'}</strong></div>
-          {admin.role === 'super' && (sure ? (
-            <div className="confirm" role="alert">
-              <span>{sure === 'delete' ? <><strong>Delete this host?</strong> Their account and all their meetups go. This can't be undone.</> : sel.status === 'suspended' ? <><strong>Lift the suspension?</strong></> : <><strong>Suspend this host?</strong> They can't sign in until you lift it.</>}</span>
-              <div className="row"><button className="btn" onClick={() => setSure(null)}>Keep</button>
-                <button className="btn danger" disabled={busy} onClick={() => sure === 'delete' ? act('user.delete', { userId: sel.id }, 'Host deleted') : act('user.suspend', { userId: sel.id, suspend: sel.status !== 'suspended' }, sel.status === 'suspended' ? 'Suspension lifted' : 'Host suspended')}>{sure === 'delete' ? 'Delete' : sel.status === 'suspended' ? 'Lift' : 'Suspend'}</button></div>
+          {admin.role === 'super' && (sure === 'give' ? (
+            <div className="confirm calm">
+              <strong>{sel.plan === 'pro' ? 'Change the end date' : 'Give Pro'}</strong>
+              <div className="chips" role="group" aria-label="How long">{GIVE_LENGTHS.map(([m, l]) => <button key={m} type="button" aria-pressed={months === m} onClick={() => setMonths(m)}>{l}</button>)}</div>
+              <span className="sub">{months ? `Pro until ${dateOnly(addMonthsSg(months))}` : 'Pro until you remove it'}</span>
+              <input className="input" placeholder="Note for the log (optional)" aria-label="Note for the log" maxLength={120} value={note} onChange={(e) => setNote(e.target.value)} />
+              <div className="row"><button className="btn" onClick={() => setSure(null)}>Cancel</button>
+                <button className="btn solid" disabled={busy} onClick={() => act('user.pro', { userId: sel.id, grant: true, endsOn: months ? addMonthsSg(months) : null, note: note.trim() }, sel.plan === 'pro' ? 'End date changed' : 'Pro given')}>{sel.plan === 'pro' ? 'Save' : 'Give Pro'}</button></div>
             </div>
-          ) : <div className="row"><button className="btn" onClick={() => setSure('suspend')}>{sel.status === 'suspended' ? 'Lift suspension' : 'Suspend'}</button><button className="btn danger" onClick={() => setSure('delete')}>Delete</button></div>)}
+          ) : sure ? (
+            <div className="confirm" role="alert">
+              <span>{sure === 'delete' ? <><strong>Delete this host?</strong> Their account and all their meetups go. This can't be undone.</> : sure === 'remove' ? <><strong>Remove Pro?</strong> They go back to Free now.</> : sel.status === 'suspended' ? <><strong>Lift the suspension?</strong></> : <><strong>Suspend this host?</strong> They can't sign in until you lift it.</>}</span>
+              <div className="row"><button className="btn" onClick={() => setSure(null)}>Keep</button>
+                <button className="btn danger" disabled={busy} onClick={() => sure === 'delete' ? act('user.delete', { userId: sel.id }, 'Host deleted') : sure === 'remove' ? act('user.pro', { userId: sel.id, grant: false }, 'Pro removed') : act('user.suspend', { userId: sel.id, suspend: sel.status !== 'suspended' }, sel.status === 'suspended' ? 'Suspension lifted' : 'Host suspended')}>{sure === 'delete' ? 'Delete' : sure === 'remove' ? 'Remove' : sel.status === 'suspended' ? 'Lift' : 'Suspend'}</button></div>
+            </div>
+          ) : (
+            <div className="stack" style={{ gap: 10 }}>
+              {!sel.paid && <div className="row">{sel.plan === 'pro'
+                ? <><button className="btn" onClick={() => setSure('give')}>Change end date</button><button className="btn" onClick={() => setSure('remove')}>Remove Pro</button></>
+                : <button className="btn" onClick={() => setSure('give')}>Give Pro</button>}</div>}
+              <div className="row"><button className="btn" onClick={() => setSure('suspend')}>{sel.status === 'suspended' ? 'Lift suspension' : 'Suspend'}</button><button className="btn danger" onClick={() => setSure('delete')}>Delete</button></div>
+            </div>
+          ))}
         </section>}
       </div>
     </>
@@ -1171,6 +1209,7 @@ function describe(l: R, admins: R[]): string {
       case 'admin.off': return `Switched off ${who(l.target)}`;
       case 'user.suspend': return detail.suspend === false ? 'Lift a host\'s suspension' : 'Suspend a host';
       case 'user.delete': return 'Delete a host\'s data';
+      case 'user.pro': return detail.grant === false ? 'Remove a host\'s given Pro' : `Give a host Pro ${detail.endsOn ? `until ${dateOnly(detail.endsOn)}` : 'with no end date'}${detail.note ? ` · ${detail.note}` : ''}`;
       case 'ads.placement': return `Turn an ad spot ${detail.enabled ? 'on' : 'off'}`;
       case 'ads.sponsor': return `Add sponsored spot ${detail.name ?? ''}`.trim();
       case 'ads.adsense': return 'Change Google ads settings';
@@ -1181,7 +1220,7 @@ function describe(l: R, admins: R[]): string {
   if (outcome === 'approved') return `Approved: ${what.charAt(0).toLowerCase()}${what.slice(1)}`;
   if (outcome === 'rejected') return `Turned down: ${what.charAt(0).toLowerCase()}${what.slice(1)}`;
   // Direct (single-admin) runs of approval actions read in the past tense.
-  return what.replace(/^Lift /, 'Lifted ').replace(/^Suspend /, 'Suspended ').replace(/^Delete /, 'Deleted ').replace(/^Turn /, 'Turned ').replace(/^Add /, 'Added ').replace(/^Change /, 'Changed ');
+  return what.replace(/^Lift /, 'Lifted ').replace(/^Suspend /, 'Suspended ').replace(/^Delete /, 'Deleted ').replace(/^Give /, 'Gave ').replace(/^Remove /, 'Removed ').replace(/^Turn /, 'Turned ').replace(/^Add /, 'Added ').replace(/^Change /, 'Changed ');
 }
 
 function Access({ admin }: { admin: AdminUser }) {

@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { ADMIN_KEY } from './playwright.config';
-import { SITE, tap, totp } from './helpers';
+import { SITE, signIn, tap, totp } from './helpers';
 
 test.use({ viewport: { width: 1280, height: 800 } });
 
@@ -137,4 +137,21 @@ test('admin: prices and categories set in the portal show up in the app', async 
   expect(cats.categories.map((c: { name: string }) => c.name)).toContain('Hotpot');
   await app.goto('http://localhost:5173/nope');
   await expect(app.getByRole('heading', { name: 'Page not found' })).toBeVisible();
+
+  // Giving Pro: the host shows as given Pro in the portal, and their Account says until when.
+  await signIn(app, 'given-pro@example.com');
+  await page.goto(`${SITE}/admin/users`);
+  await page.getByLabel('Search hosts').fill('given-pro');
+  await page.getByRole('button', { name: /given-pro@example\.com/ }).click();
+  await page.getByRole('button', { name: 'Give Pro', exact: true }).click();
+  await page.getByRole('button', { name: '3 months', exact: true }).click();
+  await page.getByLabel('Note for the log').fill('Launch helper');
+  await page.getByRole('button', { name: 'Give Pro', exact: true }).click();
+  await expect(page.getByRole('status')).toHaveText('Pro given');
+  await page.getByRole('button', { name: /given-pro@example\.com/ }).click();
+  await expect(page.getByText(/^Pro · given until /)).toBeVisible();
+  await expect(page.getByText('Launch helper')).toBeVisible();
+  await app.goto('http://localhost:5173/account');
+  await expect(app.getByText(/^Given until /)).toBeVisible();
+  await expect(app.getByRole('button', { name: 'Manage' })).toHaveCount(0);
 });
