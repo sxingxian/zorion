@@ -2,10 +2,10 @@ import { type ReactNode, useCallback, useEffect, useState } from 'react';
 import { LIMITS } from '@zorion/core';
 import { MeetupMap } from './meetupmap';
 import { Credits } from './sources';
-import { StartPicker } from './start';
+import { StartCard } from './start';
 import { Updates } from './updates';
 import { ApiError, Link, api, useAction, when } from './lib';
-import { Actions, Btn, Chevron, Chip, Codes, Facts, Field, Header, Icon, Loading, Mascot, Note, Oops, Pick, Pig, AdSlot, Switch, Toast, copyText, guestSteps, locate } from './ui';
+import { Actions, Btn, Chevron, Chip, Codes, Facts, Field, Header, Icon, Loading, Mascot, Note, Oops, Pick, Pig, AdSlot, Switch, Toast, copyText, guestSteps } from './ui';
 
 type M = Record<string, any>;
 type View = 'auto' | 'code' | 'edit' | 'dates' | 'location' | 'categories' | 'rsvp' | 'place';
@@ -57,7 +57,6 @@ export function GuestFlow({ token, m, setM }: { token: string; m: M; setM: (m: M
   const [code, setCode] = useState('');
   const [list, setList] = useState<string[]>([]);
   const [confirmedReply, setConfirmedReply] = useState(false);
-  const [typing, setTyping] = useState(false);
   const [trail, setTrail] = useState<View[]>([]);
   const [returnTo, setReturnTo] = useState<'edit' | 'auto'>('edit');
   const setView = (v: View) => { clear(); setCode(''); setViewRaw(v); };
@@ -256,23 +255,10 @@ export function GuestFlow({ token, m, setM }: { token: string; m: M; setM: (m: M
         <main className="screen" style={{ padding: '6px 20px 24px', gap: 14 }}>
           <h1 className="display h1">Where are you starting from?</h1>
           <p className="small" style={{ fontSize: 14 }}>Used to find places fair to everyone. Deleted after the meetup.</p>
+          <StartCard titled={false} isSet={!!me.hasLocation} label={me.startLabel ?? null} search={async (q) => (await api('POST', `/g/${token}/start-search`, { q }))} save={async (at) => { setM((await api('POST', `/g/${token}/location`, at)).meetup); done(); }} />
           <div className="only-phone"><MeetupMap source={`/g/${token}/map`} version={`start:${m.progress.total}:${me.showOnMap}`} height={200} compact /></div>
           <Switch on={!!me.showOnMap} onChange={(show) => call('/map-visibility', { show })} title="Show me on the crew map" meta={me.showOnMap ? 'Others see your pin and name' : 'Off: a rough area, no name'} />
-          {typing ? (
-            <>
-              <StartPicker saving={busy} search={async (q) => (await api('POST', `/g/${token}/start-search`, { q }))} onPick={(at) => run(async () => { setM((await api('POST', `/g/${token}/location`, at)).meetup); setTyping(false); done(); })} />
-              <Oops>{error}</Oops>
-              <Actions><Btn kind="second" onClick={() => { clear(); setTyping(false); }}>Use my location</Btn></Actions>
-            </>
-          ) : (
-            <>
-              <Oops>{error}</Oops>
-              <Actions>
-                <Btn busy={busy} onClick={() => run(async () => { setM((await api('POST', `/g/${token}/location`, await locate())).meetup); done(); })}>Share my location</Btn>
-                <Btn kind="second" onClick={() => { clear(); setTyping(true); }}>Type a place</Btn>
-              </Actions>
-            </>
-          )}
+          {me.hasLocation && <Actions><Btn onClick={() => done()}>Continue</Btn></Actions>}
         </main>
       </>
     );

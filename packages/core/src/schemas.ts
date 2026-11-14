@@ -9,6 +9,8 @@ export const password = z.string().min(10, 'Use at least 10 characters').max(128
 export const isoDate = z.string().datetime({ offset: true });
 export const uuid = z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);
 export const point = z.object({ lat: z.number().min(-90).max(90), lng: z.number().min(-180).max(180) });
+/** A starting point, with the place name when it was typed rather than shared from GPS. */
+export const start = point.extend({ label: z.string().max(80).transform((s) => s.replace(/[\u0000-\u001f\u007f]/g, '').trim()).optional() });
 export const rsvp = z.enum(['going', 'maybe', 'no']);
 export const travelMode = z.enum(['walk', 'transit', 'cycle']);
 export const guestTheme = z.enum(['pink', 'gold']);

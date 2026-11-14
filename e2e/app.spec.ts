@@ -10,7 +10,7 @@ test('fixed date: from a new meetup to "it is on", with a typed start and no coo
   const mia = await joinAs(browser, link, 'Mia');
   await tap(mia.page, 'Going');
   await tap(mia.page, 'Continue');
-  await tap(mia.page, 'Share my location');
+  await tap(mia.page, 'Use my location');
   await tap(mia.page, 'Pizza');
   await tap(mia.page, 'Tacos');
   await press(mia.page, 'Vote');
@@ -38,6 +38,11 @@ test('fixed date: from a new meetup to "it is on", with a typed start and no coo
   await page.reload();
   await expect(page.getByText('2 going', { exact: true })).toBeVisible();
   await expect(page.getByText('1 maybe', { exact: true })).toBeVisible();
+  // The host's own start comes first; Find places waits for it.
+  await expect(page.getByText('Add it to find places')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Find places' }).locator('visible=true')).toBeDisabled();
+  await tap(page, 'Use my location');
+  await expect(page.getByText('From your location')).toBeVisible();
   await tap(page, 'Find places');
   await expect(page.getByRole('heading', { name: 'Pick places' })).toBeVisible();
   await expect(page.getByText('Places: OpenStreetMap · Trip times: estimated from distance')).toBeVisible();
@@ -146,7 +151,7 @@ test('date vote: guests tick dates, the host sets one, and whoever picked it sta
   await expect(mia.page.getByText('When works for you?')).toBeVisible();
   await tap(mia.page, 'Sat 16 Jan');
   await press(mia.page, 'Next');
-  await tap(mia.page, 'Share my location');
+  await tap(mia.page, 'Use my location');
   await tap(mia.page, 'Pizza');
   await press(mia.page, 'Vote');
 
@@ -207,7 +212,7 @@ test('emails: a guest opts in and confirms, the host hears the votes are in, the
   const mia = await joinAs(browser, link, 'Mia');
   await tap(mia.page, 'Going');
   await tap(mia.page, 'Continue');
-  await tap(mia.page, 'Share my location');
+  await tap(mia.page, 'Use my location');
   await tap(mia.page, 'Pizza');
   await press(mia.page, 'Vote');
   await expect(mia.page.getByText("You've voted")).toBeVisible();
@@ -233,6 +238,7 @@ test('emails: a guest opts in and confirms, the host hears the votes are in, the
   expect((await mailsTo(page, 'host-mail@example.com')).map((m) => m.subject)).toContain('The food votes are in for Midnight poetry party');
   await page.reload();
   await expect(page.getByText('mia-mail@example.com')).toHaveCount(0);
+  await tap(page, 'Use my location');
   await press(page, 'Find places');
   await tap(page, 'Star Table');
   await press(page, 'Lock in Star Table');
@@ -275,7 +281,7 @@ test('telegram: a guest and the host connect, and get the same update as email, 
   const mia = await joinAs(browser, link, 'Mia');
   await tap(mia.page, 'Going');
   await tap(mia.page, 'Continue');
-  await tap(mia.page, 'Share my location');
+  await tap(mia.page, 'Use my location');
   await tap(mia.page, 'Pizza');
   await press(mia.page, 'Vote');
 
@@ -303,6 +309,7 @@ test('telegram: a guest and the host connect, and get the same update as email, 
 
   // It is on: Mia gets it on both.
   await page.reload();
+  await tap(page, 'Use my location');
   await press(page, 'Find places');
   await tap(page, 'Star Table');
   await press(page, 'Lock in Star Table');
