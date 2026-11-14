@@ -26,7 +26,10 @@ export function createApp(overrides: Partial<Deps> = {}) {
     const env = tidySettings({ ...base, ...saved });
     if (!env.EMAIL_FROM && isProd(env)) env.EMAIL_FROM = DEFAULT_EMAIL_FROM;
     const keyFrom = saved.RESEND_API_KEY ? 'portal' : env.RESEND_API_KEY ? 'worker' : 'none';
-    c.set('deps', { db, env, keyFrom, fetch: overrides.fetch ?? fetch, now: overrides.now ?? (() => new Date()), outbox: overrides.outbox ?? outbox });
+    // Never store the built-in fetch as a method: Workers throws "Illegal invocation" when it is called
+    // as deps.fetch(...). Wrapping it keeps every outside call (email, Stripe, Telegram, maps) working.
+    const send = overrides.fetch ?? fetch;
+    c.set('deps', { db, env, keyFrom, fetch: (...a: Parameters<typeof fetch>) => send(...a), now: overrides.now ?? (() => new Date()), outbox: overrides.outbox ?? outbox });
     await next();
     c.header('x-content-type-options', 'nosniff');
     c.header('referrer-policy', 'strict-origin-when-cross-origin');

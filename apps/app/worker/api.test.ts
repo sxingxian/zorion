@@ -445,3 +445,17 @@ describe('email in production', () => {
     expect((await db.query("select value from settings where key = 'email_status'"))[0]!.value).toMatchObject({ ok: false, key: 'none', reason: expect.stringContaining('No Resend key') });
   });
 });
+
+describe('outside calls', () => {
+  it('calls fetch the way Workers requires, never as a method of deps (Illegal invocation)', async () => {
+    const db = await testDb();
+    // Like the Workers runtime: refuse to run when called with an object as `this`.
+    const strict = function (this: unknown) {
+      if (this !== undefined && this !== globalThis) throw new TypeError('Illegal invocation: function called with incorrect `this` reference.');
+      return Promise.resolve(Response.json({ id: 'x' }));
+    } as unknown as typeof fetch;
+    const prod: Env = { ...env, ENVIRONMENT: 'production', RESEND_API_KEY: ['re', 'abcdefghijklmnopqrstuvwx'].join('_') };
+    const res = await browser(createApp({ db, env: prod, fetch: strict, now: () => clock, outbox: [] }))('POST', '/api/auth/email-code', { email: 'a@example.com' });
+    expect(res.status).toBe(200);
+  });
+});
