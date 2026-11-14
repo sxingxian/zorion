@@ -152,7 +152,11 @@ describe('a fixed-date meetup, start to finish', () => {
     expect(priyaCode).toMatch(/^[2-9A-HJ-NP-Z]{4}$/);
     expect((await browser(app)('POST', `/api/g/${token}/join`, { participantId: p.id })).status).toBe(409); // name is taken now
     expect((await priya('POST', `/api/g/${token}/rsvp`, { rsvp: 'maybe' })).body.meetup.me.rsvp).toBe('maybe');
-    await priya('POST', `/api/g/${token}/location`, { lat: 1.3, lng: 103.86 });
+    // A typed start keeps its name, for Priya only; the host and the crew never see it.
+    const set = (await priya('POST', `/api/g/${token}/location`, { lat: 1.3, lng: 103.86, label: 'Bugis MRT\u0007' })).body.meetup;
+    expect(set.me).toMatchObject({ hasLocation: true, startLabel: 'Bugis MRT' });
+    expect(JSON.stringify((await h('GET', `/api/meetups/${id}`)).body)).not.toContain('Bugis MRT');
+    expect((await priya('POST', `/api/g/${token}/location`, { lat: 1.3, lng: 103.86, label: 'x'.repeat(81) })).status).toBe(422);
     expect((await priya('POST', `/api/g/${token}/categories`, { keys: ['pizza', 'ramen', 'tacos', 'bar'] })).status).toBe(422);
     expect((await priya('POST', `/api/g/${token}/categories`, { keys: ['pizza', 'tacos'] })).status).toBe(200);
   });
@@ -195,7 +199,8 @@ describe('a fixed-date meetup, start to finish', () => {
     await dev('POST', `/api/g/${token}/join`, { participantId: devId });
     await dev('POST', `/api/g/${token}/rsvp`, { rsvp: 'going' });
     await dev('POST', `/api/g/${token}/location`, { lat: 1.3, lng: 103.84 });
-    await h('POST', `/api/meetups/${id}/location`, { lat: 1.3, lng: 103.85 });
+    expect((await h('POST', `/api/meetups/${id}/location`, { lat: 1.3, lng: 103.85, label: 'Rochor' })).body.meetup.startLabel).toBe('Rochor');
+    expect((await h('POST', `/api/meetups/${id}/location`, { lat: 1.3, lng: 103.85 })).body.meetup).toMatchObject({ hasLocation: true, startLabel: null }); // GPS has no name
     expect((await h('POST', `/api/meetups/${id}/middle`, {})).body.error).toBe('waiting');
     expect((await h('POST', `/api/meetups/${id}/people/${devId}/skip`, {})).body.meetup.waiting).toEqual([]);
     const mid = await h('POST', `/api/meetups/${id}/middle`, {});
@@ -318,7 +323,7 @@ describe('housekeeping', () => {
     await db.query("update meetups set starts_at = now() - interval '2 days'");
     await cleanUp(db);
     expect((await db.query("select count(*)::int as n from meetups where status <> 'ended'"))[0]!.n).toBe(0);
-    expect((await db.query('select count(*)::int as n from participants where lat is not null'))[0]!.n).toBe(0);
+    expect((await db.query('select count(*)::int as n from participants where lat is not null or start_label is not null'))[0]!.n).toBe(0);
   });
 
   it('also ends a meetup that never got a date, 30 days after its last change', async () => {

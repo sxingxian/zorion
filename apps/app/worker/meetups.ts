@@ -143,6 +143,7 @@ export function hostView(L: Loaded, deps: Deps, unseenChanges: number) {
     myCategories: host.categories as string[],
     myPlace: host.place as string | null,
     hasLocation: host.lat !== null,
+    startLabel: host.lat !== null ? (host.start_label as string | null) : null, // only ever shown to its owner
     showOnMap: !!host.show_on_map,
     dates: L.dates.map((d) => ({ id: d.id, startsAt: iso(d.starts_at), votes: s.dateTally.find((t) => t.key === d.id)?.votes ?? 0, names: L.people.filter((p) => p.is_host || p.dates.includes(d.id)).map((p) => p.name) })),
     dateAnswered: s.dateAnswered,
@@ -307,10 +308,10 @@ meetups.post('/:id/people/:pid/skip', async (c) => {
 
 meetups.post('/:id/location', async (c) => {
   const L = await owned(c);
-  const at = await body(c, schemas.point);
+  const at = await body(c, schemas.start);
   const host = L.people.find((p) => p.is_host)!;
   await c.get('deps').db.batch([
-    ['update participants set lat = $2, lng = $3 where id = $1', [host.id, at.lat, at.lng]],
+    ['update participants set lat = $2, lng = $3, start_label = $4 where id = $1', [host.id, at.lat, at.lng, at.label || null]],
     ['delete from place_times where participant_id = $1', [host.id]], // routed from the old start, so no longer true
   ]);
   return respond(c, L.m.id);

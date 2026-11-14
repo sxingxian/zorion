@@ -2,9 +2,9 @@ import { type ReactNode, useCallback, useEffect, useState } from 'react';
 import { LIMITS, OWN_ICONS, halfRoundedUp } from '@zorion/core';
 import { CrewMap, ring } from './map';
 import { Credits } from './sources';
-import { StartPicker } from './start';
+import { StartCard } from './start';
 import { ApiError, Link, type Me, api, deviceZone, fromLocalInput, navigate, openPro, toLocalInput, useAction, useInstall, when } from './lib';
-import { Actions, Btn, Check, Chevron, Chip, Cross, Facts, Field, Header, Icon, Loading, Mascot, Note, Oops, Person, Pick, Plus, Remove, Seg, AdSlot, Sponsored, Switch, Tally, Toast, copyText, hostSteps, locate } from './ui';
+import { Actions, Btn, Check, Chevron, Chip, Cross, Facts, Field, Header, Icon, Loading, Mascot, Note, Oops, Person, Pick, Plus, Remove, Seg, AdSlot, Sponsored, Switch, Tally, Toast, copyText, hostSteps } from './ui';
 import { MeetupMap } from './meetupmap';
 
 type M = Record<string, any>;
@@ -217,7 +217,6 @@ export function HostMeetup({ me, id, sub, pid, m, setM }: { me: Me; id: string; 
   const [ids, setIds] = useState<string[]>([]);
   const [pick, setPick] = useState<string>('');
   const [choice, setChoice] = useState<{ kind: string; options: string[] } | null>(null);
-  const [typing, setTyping] = useState(false);
   const call = (path: string, body?: unknown, method: 'POST' | 'PATCH' = 'POST') => run(async () => setM((await api(method, `/meetups/${id}${path}`, body)).meetup));
   const base = `/m/${id}`;
   const tz = m.timeZone;
@@ -342,7 +341,6 @@ export function HostMeetup({ me, id, sub, pid, m, setM }: { me: Me; id: string; 
     const waiting = m.people.filter((p: M) => m.waiting.includes(p.id));
     const findMiddle = (extra: M = {}) => run(async () => {
       try {
-        if (!m.hasLocation) setM((await api('POST', `/meetups/${id}/location`, await locate())).meetup);
         setM((await api('POST', `/meetups/${id}/middle`, extra)).meetup);
         setChoice(null);
       } catch (e) {
@@ -374,8 +372,8 @@ export function HostMeetup({ me, id, sub, pid, m, setM }: { me: Me; id: string; 
           <div className="card stack" style={{ gap: 10 }}><div className="row between"><strong style={{ fontSize: 14 }}>Food votes</strong></div>{foodTally}</div>
           <div className="only-phone"><MeetupMap source={`/meetups/${m.id}/map`} version={`${m.status}:${m.people.filter((p: M) => p.hasLocation).length}`} height={220} compact /></div>
           {people}
+          <StartCard isSet={m.hasLocation} label={m.startLabel} hint="Add it to find places" search={async (q) => (await api('POST', `/meetups/${id}/start-search`, { q }))} save={async (at) => setM((await api('POST', `/meetups/${id}/location`, at)).meetup)} />
           {m.hasLocation && <Switch on={m.showOnMap} onChange={(show) => call('/map-visibility', { show })} title="Show me on the crew map" meta={m.showOnMap ? 'Others see your pin and name' : 'Others see a rough area'} />}
-          {waiting.length === 0 && typing && <div className="card"><StartPicker saving={busy} search={async (q) => (await api('POST', `/meetups/${id}/start-search`, { q }))} onPick={(at) => run(async () => { setM((await api('POST', `/meetups/${id}/location`, at)).meetup); setTyping(false); })} /></div>}
           <Oops>{error}</Oops>
           <Actions>
             {waiting.length > 0 ? (
@@ -384,16 +382,7 @@ export function HostMeetup({ me, id, sub, pid, m, setM }: { me: Me; id: string; 
                 <Btn kind="second" busy={busy} onClick={() => run(async () => { let cur = m; for (const p of waiting) cur = (await api('POST', `/meetups/${id}/people/${p.id}/skip`)).meetup; setM(cur); })}>Skip {waiting.length === 1 ? waiting[0].name : 'them'} and continue</Btn>
               </>
             ) : (
-              <>
-                {typing ? (
-                  <Btn kind="second" onClick={() => setTyping(false)}>Use my location</Btn>
-                ) : (
-                  <>
-                    <Btn busy={busy} onClick={() => findMiddle()}>Find places</Btn>
-                    <Btn kind="second" onClick={() => setTyping(true)}>{m.hasLocation ? 'Change my start' : 'Type my start'}</Btn>
-                  </>
-                )}
-              </>
+              <Btn busy={busy} disabled={!m.hasLocation} onClick={() => findMiddle()}>Find places</Btn>
             )}
           </Actions>
           <Toast text={toast} onDone={() => setToast(null)} />
